@@ -16,14 +16,16 @@ from datetime import datetime
 from packaging import version
 
 # Configuration
-SERVER_URL = "ws://140.112.16.226:8889"  # 修改为你的服务器地址
+# SERVER_URL = "ws://140.112.16.226:8889"  # 修改为你的服务器地址
+SERVER_URL = "ws://localhost:8889"
 RECONNECT_DELAY = 5  # 重连延迟（秒）
 HEARTBEAT_INTERVAL = 1  # 心跳间隔（秒）
 BATCH_SIZE = 50  # 批量发送的消息数量（增大以提高效率）
 BATCH_TIMEOUT = 0.05  # 批量发送超时（秒），50ms
 MAX_QUEUE_SIZE = 1000  # 最大队列大小，防止内存溢出
 USE_BATCH_MODE = True  # 批量发送模式
-LOGS_DIR = "../LOGS"  # CSV文件目录
+# LOGS_DIR = "../LOGS"  # CSV文件目录
+LOGS_DIR = "LOGS"
 CSV_REPLAY_SPEED = 1.0  # CSV回放速度倍数
 
 class CANDataClient:

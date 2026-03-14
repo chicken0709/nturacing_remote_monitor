@@ -22,11 +22,12 @@ from typing import List, Dict
 import csv
 import os
 import websockets
+import cantools
 
 # Configuration
 WEB_PORT = 8888  # 网页服务端口
 DATA_PORT = 8889  # 接收车辆数据的端口
-DIRBASE = "../LOGS/"
+DBC_FILE = "dbc/NTUR_EP6_260122.dbc"
 
 app = FastAPI()
 app.add_middleware(
@@ -145,6 +146,14 @@ class RemoteCANServer:
         # Position covariance 暂存
         self.position_covariance = [0.0] * 9
         self.position_covariance_type = 0
+
+        # load dbc file
+        try:
+            self.db = cantools.database.load_file(DBC_FILE)
+            print(f"Loaded DBC file: {DBC_FILE}")
+            print(f"Messages count: {len(self.db.messages)}")
+        except Exception as e:
+            print(f"Error loading DBC file: {e}")
         
         print("Remote CAN Server initialized")
 
@@ -387,10 +396,10 @@ class RemoteCANServer:
                 self.decode_gps_basic(data)
             elif can_id == 0x401:
                 self.decode_gps_extended(data)
-            elif 0x410 <= can_id <= 0x418:
+            elif 0x410 <= can_id <= 0x418: # not in dbc
                 self.decode_position_covariance(data, can_id - 0x410)
-            elif can_id == 0x419:
-                self.decode_position_covariance_type(data)
+            elif can_id == 0x419: # not in dbc
+                self.decode_position_covariance_type(data) 
                 
             # 速度资料解码
             elif can_id == 0x402:
@@ -407,25 +416,25 @@ class RemoteCANServer:
                 self.decode_angular_z(data)
             elif can_id == 0x408:
                 self.decode_velocity_magnitude(data)
-            elif can_id == 0x440:
+            elif can_id == 0x440: # not in dbc
                 self.decode_distance(data)
             
             # Accumulator 解码
-            elif can_id == 0x601:
+            elif can_id == 0x601: # not in dbc
                 self.decode_cell_voltage(data)
-            elif can_id == 0x651:
+            elif can_id == 0x651: # not in dbc
                 self.decode_accumulator_temperature(data)
-            elif can_id == 0x710:
+            elif can_id == 0x710: # different type of operation, I'm not sure of the correctness
                 self.decode_accumulator_heartbeat(data)
-            elif can_id == 0x501:
+            elif can_id == 0x501: # not in dbc
                 self.decode_accumulator_status(data)
-            elif can_id == 0x511:
+            elif can_id == 0x511: # not in dbc
                 self.decode_accumulator_state(data)
             
             # Inverter 解码
             elif 0x191 <= can_id <= 0x194:
                 inv_num = can_id - 0x190
-                self.decode_inverter_status(data, inv_num)
+                self.decode_inverter_status(data, inv_num, can_id)
             elif 0x291 <= can_id <= 0x294:
                 inv_num = can_id - 0x290
                 self.decode_inverter_state(data, inv_num)
@@ -483,76 +492,82 @@ class RemoteCANServer:
             print(f"Failed to decode CAN message ID 0x{can_id:03X}: {e}")
 
     # 所有decode函数（与原代码相同）
-    def decode_timestamp(self, data):
-        if len(data) >= 6:
-            ms_since_midnight = struct.unpack('<I', data[0:4])[0]
-            days_since_1984 = struct.unpack('<H', data[4:6])[0]
-            
-            base_timestamp = 441763200
-            total_seconds = base_timestamp + (days_since_1984 * 86400) + (ms_since_midnight / 1000.0)
-            decoded_time = datetime.fromtimestamp(total_seconds)
-            
-            current_time = time.time()
-            self.data_store['timestamp']['time'] = decoded_time
-            self.data_store['timestamp']['last_update'] = current_time
+    def decode_timestamp(self, data, can_id = 0x100):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
 
-    def decode_vcu_cockpit(self, data):
-        if len(data) >= 8:
-            stear_raw = struct.unpack('<h', data[0:2])[0]
-            accel_raw = data[2] 
-            apps1_raw = data[3]
-            apps2_raw = data[4]
-            brake_raw = data[5]
-            bse1_raw = data[6]
-            bse2_raw = data[7]
-            stear_data = stear_raw * 100
+        ms_since_midnight = decoded.get('MillisecondsSinceMidnight')
+        days_since_1984 = decoded.get('DaysSince1984')
             
-            current_time = time.time()
-            self.data_store['vcu']['steer'] = stear_data
-            self.data_store['vcu']['accel'] = accel_raw
-            self.data_store['vcu']['apps1'] = apps1_raw
-            self.data_store['vcu']['apps2'] = apps2_raw
-            self.data_store['vcu']['brake'] = brake_raw
-            self.data_store['vcu']['bse1'] = bse1_raw
-            self.data_store['vcu']['bse2'] = bse2_raw
-            self.data_store['vcu']['last_update'] = current_time
+        base_timestamp = 441763200
+        total_seconds = base_timestamp + (days_since_1984 * 86400) + (ms_since_midnight / 1000.0)
+        decoded_time = datetime.fromtimestamp(total_seconds)
+        
+        self.data_store['timestamp']['time'] = decoded_time
+        self.data_store['timestamp']['last_update'] = time.time()
 
-    def decode_vcu_suspension(self, data):
-        if len(data) >= 4:
-            suspF_raw = struct.unpack('<H', data[0:2])[0]
-            suspF = suspF_raw * 0.0001 + 0.3
-            
-            suspR_raw = struct.unpack('<H', data[2:4])[0]
-            suspR = suspR_raw * 0.0001 + 0.3
-            
-            current_time = time.time()
-            self.data_store['vcu']['suspF'] = suspF
-            self.data_store['vcu']['suspR'] = suspR
-            self.data_store['vcu']['last_update'] = current_time
+    def decode_vcu_cockpit(self, data, can_id = 0x181):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
 
-    def decode_gps_basic(self, data):
-        if len(data) >= 8:
-            lat_raw = struct.unpack('<i', data[0:4])[0]
-            self.gps_lat = lat_raw / 10**7
-            
-            lon_raw = struct.unpack('<i', data[4:8])[0]
-            self.gps_lon = lon_raw / 10**7
-            
-            current_time = time.time()
-            self.data_store['gps']['lat'] = self.gps_lat
-            self.data_store['gps']['lon'] = self.gps_lon
-            self.data_store['gps']['last_update'] = current_time
+        self.data_store['vcu']['steer'] = decoded.get('Steer') * 10000 # dbc scaling weird?
+        self.data_store['vcu']['accel'] = decoded.get('Accel')
+        self.data_store['vcu']['apps1'] = decoded.get('APPS1')
+        self.data_store['vcu']['apps2'] = decoded.get('APPS2')
+        self.data_store['vcu']['brake'] = decoded.get('Brake')
+        self.data_store['vcu']['bse1'] = decoded.get('BSE1')
+        self.data_store['vcu']['bse2'] = decoded.get('BSE2')
+        self.data_store['vcu']['last_update'] = time.time()
 
-    def decode_gps_extended(self, data):
-        if len(data) >= 2:
-            alt_raw = struct.unpack('<h', data[0:2])[0]
-            status_byte = data[2] if len(data) > 2 else 0
-            self.gps_alt = float(alt_raw)
+    def decode_vcu_suspension(self, data, can_id = 0x381):        
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        suspF_raw = decoded.get('SUSP_F')
+        suspR_raw = decoded.get('SUSP_R')
+
+        suspF = suspF_raw * 0.001 + 0.3 # dbc scaling?
+        suspR = suspR_raw * 0.001 + 0.3 # dbc scaling?
             
-            current_time = time.time()
-            self.data_store['gps']['alt'] = self.gps_alt
-            self.data_store['gps']['status'] = status_byte
-            self.data_store['gps']['last_update'] = current_time
+        self.data_store['vcu']['suspF'] = suspF
+        self.data_store['vcu']['suspR'] = suspR
+        self.data_store['vcu']['last_update'] = time.time()
+
+    def decode_gps_basic(self, data, can_id = 0x400):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        lat_raw = decoded.get('Latitude')
+        lon_raw = decoded.get('Logitude') # typo in dbc?
+
+        self.gps_lat = lat_raw
+        self.gps_lon = lon_raw
+            
+        self.data_store['gps']['lat'] = self.gps_lat
+        self.data_store['gps']['lon'] = self.gps_lon
+        self.data_store['gps']['last_update'] = time.time()
+
+    def decode_gps_extended(self, data, can_id = 0x401):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        alt_raw = decoded.get('Altitude')
+        status_byte = decoded.get('Status')
+        self.gps_alt = float(alt_raw)
+
+        self.data_store['gps']['alt'] = self.gps_alt
+        self.data_store['gps']['status'] = status_byte
+        self.data_store['gps']['last_update'] = time.time()
 
     def decode_position_covariance(self, data, index):
         if len(data) >= 8 and 0 <= index < 9:
@@ -576,70 +591,91 @@ class RemoteCANServer:
             self.data_store['covariance']['type_name'] = type_name
             self.data_store['covariance']['last_update'] = current_time
 
-    def decode_velocity_x(self, data):
-        if len(data) >= 4:
-            vx_raw = struct.unpack('<i', data[0:4])[0]
-            vx = vx_raw / 1000.0
-            
-            current_time = time.time()
-            self.data_store['velocity']['linear_x'] = vx
-            self.data_store['velocity']['last_update'] = current_time
+    def decode_velocity_x(self, data, can_id = 0x402):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
 
-    def decode_velocity_y(self, data):
-        if len(data) >= 4:
-            vy_raw = struct.unpack('<i', data[0:4])[0]
-            vy = vy_raw / 1000.0
+        vx_raw = decoded.get('Vx')
+        vx = vx_raw / 1000.0
             
-            current_time = time.time()
-            self.data_store['velocity']['linear_y'] = vy
-            self.data_store['velocity']['last_update'] = current_time
+        self.data_store['velocity']['linear_x'] = vx
+        self.data_store['velocity']['last_update'] = time.time()
 
-    def decode_velocity_z(self, data):
-        if len(data) >= 4:
-            vz_raw = struct.unpack('<i', data[0:4])[0]
-            vz = vz_raw / 1000.0
-            
-            current_time = time.time()
-            self.data_store['velocity']['linear_z'] = vz
-            self.data_store['velocity']['last_update'] = current_time
+    def decode_velocity_y(self, data, can_id = 0x403):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
 
-    def decode_angular_x(self, data):
-        if len(data) >= 4:
-            wx_raw = struct.unpack('<i', data[0:4])[0]
-            wx = wx_raw / 1000.0
-            
-            current_time = time.time()
-            self.data_store['velocity']['angular_x'] = wx
-            self.data_store['velocity']['last_update'] = current_time
+        vy_raw = decoded.get('Vy')
+        vy = vy_raw / 1000.0
 
-    def decode_angular_y(self, data):
-        if len(data) >= 4:
-            wy_raw = struct.unpack('<i', data[0:4])[0]
-            wy = wy_raw / 1000.0
-            
-            current_time = time.time()
-            self.data_store['velocity']['angular_y'] = wy
-            self.data_store['velocity']['last_update'] = current_time
+        self.data_store['velocity']['linear_y'] = vy
+        self.data_store['velocity']['last_update'] = time.time()
 
-    def decode_angular_z(self, data):
-        if len(data) >= 4:
-            wz_raw = struct.unpack('<i', data[0:4])[0]
-            wz = wz_raw / 1000.0
-            
-            current_time = time.time()
-            self.data_store['velocity']['angular_z'] = wz
-            self.data_store['velocity']['last_update'] = current_time
+    def decode_velocity_z(self, data, can_id = 0x404):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
 
-    def decode_velocity_magnitude(self, data):
-        if len(data) >= 4:
-            vmag_raw = struct.unpack('<i', data[0:4])[0]
-            vmag = vmag_raw / 1000.0
-            speed_kmh = vmag * 3.6
+        vz_raw = decoded.get('Vz')
+        vz = vz_raw / 1000.0
+
+        self.data_store['velocity']['linear_z'] = vz
+        self.data_store['velocity']['last_update'] = time.time()
+
+    def decode_angular_x(self, data, can_id = 0x405):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        wx_raw = decoded.get('Gx')
+        wx = wx_raw / 1000.0
             
-            current_time = time.time()
-            self.data_store['velocity']['magnitude'] = vmag
-            self.data_store['velocity']['speed_kmh'] = speed_kmh
-            self.data_store['velocity']['last_update'] = current_time
+        self.data_store['velocity']['angular_x'] = wx
+        self.data_store['velocity']['last_update'] = time.time()
+
+    def decode_angular_y(self, data, can_id = 0x406):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        wy_raw = decoded.get('Gy')
+        wy = wy_raw / 1000.0
+
+        self.data_store['velocity']['angular_y'] = wy
+        self.data_store['velocity']['last_update'] = time.time()
+
+    def decode_angular_z(self, data, can_id = 0x407):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        wz_raw = decoded.get('Gz')
+        wz = wz_raw / 1000.0
+
+        self.data_store['velocity']['angular_z'] = wz
+        self.data_store['velocity']['last_update'] = time.time()
+
+    def decode_velocity_magnitude(self, data, can_id = 0x408):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        vmag_raw = decoded.get('Velocity')
+        vmag = vmag_raw / 1000.0
+        speed_kmh = vmag * 3.6
+        
+        self.data_store['velocity']['magnitude'] = vmag
+        self.data_store['velocity']['speed_kmh'] = speed_kmh
+        self.data_store['velocity']['last_update'] = time.time()
 
     def decode_distance(self, data):
         if len(data) >= 4:
@@ -719,8 +755,8 @@ class RemoteCANServer:
             current_raw = struct.unpack('<h', data[1:3])[0]
             capacity_raw = struct.unpack('<h', data[3:5])[0] if len(data) >= 5 else 0
             
-            current = current_raw * 0.01
-            capacity = capacity_raw * 0.01
+            current = current_raw * 0.01 # scaling?
+            capacity = capacity_raw * 0.01 # scaling?
             
             current_time = time.time()
             self.data_store['accumulator']['soc'] = soc
@@ -728,23 +764,30 @@ class RemoteCANServer:
             self.data_store['accumulator']['capacity'] = capacity
             self.data_store['accumulator']['last_update'] = current_time
 
-    def decode_inverter_status(self, data, inv_num):
-        if len(data) >= 6:
-            status_word1 = data[0]
-            status_word2 = data[1]
-            feedback_torque_raw = struct.unpack('<h', data[2:4])[0]
-            speed_raw = struct.unpack('<h', data[4:6])[0]
-            feedback_torque = feedback_torque_raw / 1000.0 * 20
-            speed = speed_raw
-            if inv_num == (0x213-0x210):
-                feedback_torque *= -1
-            
-            if inv_num in self.data_store['inverters']:
-                current_time = time.time()
-                self.data_store['inverters'][inv_num]['status'] = (status_word1, status_word2) 
-                self.data_store['inverters'][inv_num]['torque'] = feedback_torque
-                self.data_store['inverters'][inv_num]['speed'] = speed
-                self.data_store['inverters'][inv_num]['last_update'] = current_time
+    def decode_inverter_status(self, data, inv_num, can_id):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        # status doesn't match with any dbc signal
+        status_word1 = data[0]
+        status_word2 = data[1]
+
+        feedback_torque_raw = decoded.get('TorqueFeedback')
+        speed_raw = decoded.get('Speed')
+
+        feedback_torque = feedback_torque_raw / 100.0 * 20 * 4 # scaling?
+        speed = speed_raw
+
+        if inv_num == (0x213-0x210):
+            feedback_torque *= -1
+        
+        if inv_num in self.data_store['inverters']:
+            self.data_store['inverters'][inv_num]['status'] = (status_word1, status_word2) 
+            self.data_store['inverters'][inv_num]['torque'] = feedback_torque
+            self.data_store['inverters'][inv_num]['speed'] = speed
+            self.data_store['inverters'][inv_num]['last_update'] = time.time()
 
     def decode_inverter_state(self, data, inv_num):
         if len(data) >= 4:
