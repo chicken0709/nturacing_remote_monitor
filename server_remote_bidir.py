@@ -437,25 +437,25 @@ class RemoteCANServer:
                 self.decode_inverter_status(data, inv_num, can_id)
             elif 0x291 <= can_id <= 0x294:
                 inv_num = can_id - 0x290
-                self.decode_inverter_state(data, inv_num)
+                self.decode_inverter_state(data, inv_num, can_id)
             elif 0x391 <= can_id <= 0x394:
                 inv_num = can_id - 0x390
-                self.decode_inverter_temperature(data, inv_num)
-            elif 0x711 <= can_id <= 0x714:
+                self.decode_inverter_temperature(data, inv_num, can_id)
+            elif 0x711 <= can_id <= 0x714: # not sure
                 inv_num = can_id - 0x710
                 self.decode_inverter_heartbeat(data, inv_num)
-            elif 0x210 <= can_id <= 0x214:
+            elif 0x210 <= can_id <= 0x214: # not sure
                 inv_num = can_id - 0x210
                 self.decode_inverter_control(data, inv_num)
             
             # IMU 解码
-            elif can_id == 0x185:
+            elif can_id == 0x185: # not in dbc
                 self.decode_imu_accel_km6(data)
             elif can_id == 0x426:
                 self.decode_imu_accel_km308(data)
-            elif can_id == 0x285:
+            elif can_id == 0x285: # not in dbc
                 self.decode_imu_gyro(data)
-            elif can_id == 0x385:
+            elif can_id == 0x385: # not in dbc
                 self.decode_imu_euler(data)
             elif can_id == 0x429:
                 self.decode_imu_mag(data)
@@ -468,7 +468,7 @@ class RemoteCANServer:
             elif can_id == 0x488:
                 self.decode_imu2_quaternion(data)
             
-            # Xsens IMU 解码
+            # Xsens IMU 解码 all not in dbc
             elif can_id == 0x021:
                 self.decode_xsens_quaternion(data)
             elif can_id == 0x031:
@@ -789,36 +789,35 @@ class RemoteCANServer:
             self.data_store['inverters'][inv_num]['speed'] = speed
             self.data_store['inverters'][inv_num]['last_update'] = time.time()
 
-    def decode_inverter_state(self, data, inv_num):
-        if len(data) >= 4:
-            dc_voltage_raw = struct.unpack('<H', data[0:2])[0]
-            dc_current_raw = struct.unpack('<H', data[2:4])[0]
-            
-            dc_voltage = dc_voltage_raw / 100.0
-            dc_current = dc_current_raw / 100.0
-            
-            if inv_num in self.data_store['inverters']:
-                current_time = time.time()
-                self.data_store['inverters'][inv_num]['dc_voltage'] = dc_voltage
-                self.data_store['inverters'][inv_num]['dc_current'] = dc_current
-                self.data_store['inverters'][inv_num]['last_update'] = current_time
+    def decode_inverter_state(self, data, inv_num, can_id):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
 
-    def decode_inverter_temperature(self, data, inv_num):
-        if len(data) >= 6:
-            inv_mos_temp_raw = struct.unpack('<h', data[0:2])[0]
-            mcu_temp_raw = struct.unpack('<h', data[2:4])[0]
-            motor_temp_raw = struct.unpack('<h', data[4:6])[0]
+        dc_voltage = decoded.get('DCvolt')
+        dc_current = decoded.get('DCcurrent')
             
-            inv_mos_temp = inv_mos_temp_raw * 0.1
-            mcu_temp = mcu_temp_raw * 0.1
-            motor_temp = motor_temp_raw * 0.1
-            
-            if inv_num in self.data_store['inverters']:
-                current_time = time.time()
-                self.data_store['inverters'][inv_num]['mos_temp'] = inv_mos_temp
-                self.data_store['inverters'][inv_num]['mcu_temp'] = mcu_temp
-                self.data_store['inverters'][inv_num]['motor_temp'] = motor_temp
-                self.data_store['inverters'][inv_num]['last_update'] = current_time
+        if inv_num in self.data_store['inverters']:
+            self.data_store['inverters'][inv_num]['dc_voltage'] = dc_voltage
+            self.data_store['inverters'][inv_num]['dc_current'] = dc_current
+            self.data_store['inverters'][inv_num]['last_update'] = time.time()
+
+    def decode_inverter_temperature(self, data, inv_num, can_id):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        inv_mos_temp = decoded.get('InvMOStemp')
+        mcu_temp = decoded.get('MCUtemp')
+        motor_temp = decoded.get('MOTORtemp')
+
+        if inv_num in self.data_store['inverters']:
+            self.data_store['inverters'][inv_num]['mos_temp'] = inv_mos_temp
+            self.data_store['inverters'][inv_num]['mcu_temp'] = mcu_temp
+            self.data_store['inverters'][inv_num]['motor_temp'] = motor_temp
+            self.data_store['inverters'][inv_num]['last_update'] = time.time()
 
     def decode_inverter_heartbeat(self, data, inv_num):
         if len(data) >= 1:
@@ -858,21 +857,20 @@ class RemoteCANServer:
             self.data_store['imu']['accel_km6']['z'] = z
             self.data_store['imu']['last_update'] = current_time
 
-    def decode_imu_accel_km308(self, data):
-        if len(data) >= 6:
-            x_raw = struct.unpack('<h', data[0:2])[0]
-            y_raw = struct.unpack('<h', data[2:4])[0]
-            z_raw = struct.unpack('<h', data[4:6])[0]
-            
-            x = x_raw * 0.001
-            y = y_raw * 0.001
-            z = z_raw * 0.001
-            
-            current_time = time.time()
-            self.data_store['imu']['accel_km308']['x'] = x
-            self.data_store['imu']['accel_km308']['y'] = y
-            self.data_store['imu']['accel_km308']['z'] = z
-            self.data_store['imu']['last_update'] = current_time
+    def decode_imu_accel_km308(self, data, can_id = 0x426):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        x = decoded.get('a_x')
+        y = decoded.get('a_y')
+        z = decoded.get('a_z')
+
+        self.data_store['imu']['accel_km308']['x'] = x
+        self.data_store['imu']['accel_km308']['y'] = y
+        self.data_store['imu']['accel_km308']['z'] = z
+        self.data_store['imu']['last_update'] = time.time()
 
     def decode_imu_gyro(self, data):
         if len(data) >= 6:
@@ -906,73 +904,68 @@ class RemoteCANServer:
             self.data_store['imu']['euler']['yaw'] = yaw
             self.data_store['imu']['last_update'] = current_time
 
-    def decode_imu_mag(self, data):
-        if len(data) >= 6:
-            x_raw = struct.unpack('<h', data[0:2])[0]
-            y_raw = struct.unpack('<h', data[2:4])[0]
-            z_raw = struct.unpack('<h', data[4:6])[0]
-            
-            x = x_raw * 0.1
-            y = y_raw * 0.1
-            z = z_raw * 0.1
-            
-            current_time = time.time()
-            self.data_store['imu']['mag']['x'] = x
-            self.data_store['imu']['mag']['y'] = y
-            self.data_store['imu']['mag']['z'] = z
-            self.data_store['imu']['last_update'] = current_time
+    def decode_imu_mag(self, data, can_id = 0x429):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
 
-    def decode_imu2_accel(self, data):
-        if len(data) >= 6:
-            x_raw = struct.unpack('<h', data[0:2])[0]
-            y_raw = struct.unpack('<h', data[2:4])[0]
-            z_raw = struct.unpack('<h', data[4:6])[0]
-            
-            x = x_raw * 0.001
-            y = y_raw * 0.001
-            z = z_raw * 0.001
-            
-            current_time = time.time()
-            self.data_store['imu2']['accel']['x'] = x
-            self.data_store['imu2']['accel']['y'] = y
-            self.data_store['imu2']['accel']['z'] = z
-            self.data_store['imu2']['last_update'] = current_time
+        x = decoded.get('m_x') * 0.1
+        y = decoded.get('m_y') * 0.1
+        z = decoded.get('m_z') * 0.1
 
-    def decode_imu2_gyro(self, data):
-        if len(data) >= 6:
-            x_raw = struct.unpack('<h', data[0:2])[0]
-            y_raw = struct.unpack('<h', data[2:4])[0]
-            z_raw = struct.unpack('<h', data[4:6])[0]
-            
-            x = x_raw * 0.1
-            y = y_raw * 0.1
-            z = z_raw * 0.1
-            
-            current_time = time.time()
-            self.data_store['imu2']['gyro']['x'] = x
-            self.data_store['imu2']['gyro']['y'] = y
-            self.data_store['imu2']['gyro']['z'] = z
-            self.data_store['imu2']['last_update'] = current_time
+        self.data_store['imu']['mag']['x'] = x
+        self.data_store['imu']['mag']['y'] = y
+        self.data_store['imu']['mag']['z'] = z
+        self.data_store['imu']['last_update'] = time.time()
 
-    def decode_imu2_quaternion(self, data):
-        if len(data) >= 8:
-            w_raw = struct.unpack('<h', data[0:2])[0]
-            x_raw = struct.unpack('<h', data[2:4])[0]
-            y_raw = struct.unpack('<h', data[4:6])[0]
-            z_raw = struct.unpack('<h', data[6:8])[0]
-            
-            w = w_raw * 0.0001
-            x = x_raw * 0.0001
-            y = y_raw * 0.0001
-            z = z_raw * 0.0001
-            
-            current_time = time.time()
-            self.data_store['imu2']['quaternion']['w'] = w
-            self.data_store['imu2']['quaternion']['x'] = x
-            self.data_store['imu2']['quaternion']['y'] = y
-            self.data_store['imu2']['quaternion']['z'] = z
-            self.data_store['imu2']['last_update'] = current_time
+    def decode_imu2_accel(self, data, can_id = 0x188):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
 
+        x = decoded.get('a_x')
+        y = decoded.get('a_y')
+        z = decoded.get('a_z')
+
+        self.data_store['imu2']['accel']['x'] = x
+        self.data_store['imu2']['accel']['y'] = y
+        self.data_store['imu2']['accel']['z'] = z
+        self.data_store['imu2']['last_update'] = time.time()
+
+    def decode_imu2_gyro(self, data, can_id = 0x288):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        x = decoded.get('g_x')
+        y = decoded.get('g_y')
+        z = decoded.get('g_z')
+
+        self.data_store['imu2']['gyro']['x'] = x
+        self.data_store['imu2']['gyro']['y'] = y
+        self.data_store['imu2']['gyro']['z'] = z
+        self.data_store['imu2']['last_update'] = time.time()
+
+    def decode_imu2_quaternion(self, data, can_id = 0x488):
+        message = self.db.get_message_by_frame_id(can_id)
+        if len(data) < message.length:
+            return
+        decoded = message.decode(data)
+
+        w = decoded.get('q_w')
+        x = decoded.get('q_x')
+        y = decoded.get('q_y')
+        z = decoded.get('q_z')
+
+        self.data_store['imu2']['quaternion']['w'] = w
+        self.data_store['imu2']['quaternion']['x'] = x
+        self.data_store['imu2']['quaternion']['y'] = y
+        self.data_store['imu2']['quaternion']['z'] = z
+        self.data_store['imu2']['last_update'] = time.time()
+            
     def decode_xsens_quaternion(self, data):
         if len(data) >= 8:
             q0_raw = struct.unpack('>h', data[0:2])[0]
