@@ -138,14 +138,30 @@ class RemoteCANServer:
         self.message_count = 0
         self.running = True
         
-        # Legacy GPS数据暂存
-        self.gps_lat = None
-        self.gps_lon = None
-        self.gps_alt = None
-        
         # Position covariance 暂存
         self.position_covariance = [0.0] * 9
         self.position_covariance_type = 0
+
+        # decode logic reduction section
+
+        self.subsystem_map = {
+            0x100: "timestamp",
+            0x181: "vcu", 0x381: "vcu",
+            0x400: "gps", 0x401: "gps",
+            0x410: "covariance", 0x411: "covariance", 0x412: "covariance", 0x413: "covariance", 0x414: "covariance", 0x415: "covariance", 0x416: "covariance", 0x417: "covariance", 0x418: "covariance", 0x419: "covariance",
+            0x402: "velocity", 0x403: "velocity", 0x404: "velocity", 0x405: "velocity", 0x406: "velocity", 0x407: "velocity", 0x408: "velocity", 0x440: "distance",
+            0x601: "accumulator", 0x651: "accumulator", 0x710: "accumulator", 0x501: "accumulator", 0x511: "accumulator",
+            0x191: "inverters", 0x192: "inverters", 0x193: "inverters", 0x194: "inverters",
+            0x291: "inverters", 0x292: "inverters", 0x293: "inverters", 0x294: "inverters",
+            0x391: "inverters", 0x392: "inverters", 0x393: "inverters", 0x394: "inverters",
+            0x711: "inverters", 0x712: "inverters", 0x713: "inverters", 0x714: "inverters",
+            0x211: "inverters", 0x212: "inverters", 0x213: "inverters", 0x214: "inverters",
+            0x185: "imu", 0x426: "imu", 0x285: "imu", 0x385: "imu", 0x429: "imu",
+            0x188: "imu2", 0x288: "imu2", 0x488: "imu2",
+            0x021: "xsens", 0x031: "xsens", 0x032: "xsens", 0x033: "xsens", 0x034: "xsens", 0x041: "xsens", 0x071: "xsens", 0x072: "xsens", 0x076: "xsens"
+        }
+
+        self.dbc_supported_can_id = set(msg.frame_id for msg in cantools.database.load_file(DBC_FILE).messages)
 
         # load dbc file
         try:
@@ -382,20 +398,26 @@ class RemoteCANServer:
         can_id = msg.arbitration_id
         data = msg.data
         
+        if can_id in self.dbc_supported_can_id:
+            message = self.db.get_message_by_frame_id(can_id)
+            if len(data) < message.length:
+                return
+            decoded = message.decode(data)
+
         try:
             # Timestamp 解码
             if can_id == 0x100:
-                self.decode_timestamp(data)
-            
+                self.decode_timestamp(decoded)
+            # VCU 解码
             elif can_id == 0x181:
-                self.decode_vcu_cockpit(data)
+                self.decode_vcu_cockpit(decoded)
             elif can_id == 0x381:
-                self.decode_vcu_suspension(data)
+                self.decode_vcu_suspension(decoded)
             # GPS 解码
             elif can_id == 0x400:
-                self.decode_gps_basic(data)
+                self.decode_gps_basic(decoded)
             elif can_id == 0x401:
-                self.decode_gps_extended(data)
+                self.decode_gps_extended(decoded)
             elif 0x410 <= can_id <= 0x418: # not in dbc
                 self.decode_position_covariance(data, can_id - 0x410)
             elif can_id == 0x419: # not in dbc
@@ -403,19 +425,19 @@ class RemoteCANServer:
                 
             # 速度资料解码
             elif can_id == 0x402:
-                self.decode_velocity_x(data)
+                self.decode_velocity_x(decoded)
             elif can_id == 0x403:
-                self.decode_velocity_y(data)
+                self.decode_velocity_y(decoded)
             elif can_id == 0x404:
-                self.decode_velocity_z(data)
+                self.decode_velocity_z(decoded)
             elif can_id == 0x405:
-                self.decode_angular_x(data)
+                self.decode_angular_x(decoded)
             elif can_id == 0x406:
-                self.decode_angular_y(data)
+                self.decode_angular_y(decoded)
             elif can_id == 0x407:
-                self.decode_angular_z(data)
+                self.decode_angular_z(decoded)
             elif can_id == 0x408:
-                self.decode_velocity_magnitude(data)
+                self.decode_velocity_magnitude(decoded)
             elif can_id == 0x440: # not in dbc
                 self.decode_distance(data)
             
@@ -434,13 +456,13 @@ class RemoteCANServer:
             # Inverter 解码
             elif 0x191 <= can_id <= 0x194:
                 inv_num = can_id - 0x190
-                self.decode_inverter_status(data, inv_num, can_id)
+                self.decode_inverter_status(data, decoded, inv_num)
             elif 0x291 <= can_id <= 0x294:
                 inv_num = can_id - 0x290
-                self.decode_inverter_state(data, inv_num, can_id)
+                self.decode_inverter_state(decoded, inv_num)
             elif 0x391 <= can_id <= 0x394:
                 inv_num = can_id - 0x390
-                self.decode_inverter_temperature(data, inv_num, can_id)
+                self.decode_inverter_temperature(decoded, inv_num)
             elif 0x711 <= can_id <= 0x714: # not sure
                 inv_num = can_id - 0x710
                 self.decode_inverter_heartbeat(data, inv_num)
@@ -452,21 +474,21 @@ class RemoteCANServer:
             elif can_id == 0x185: # not in dbc
                 self.decode_imu_accel_km6(data)
             elif can_id == 0x426:
-                self.decode_imu_accel_km308(data)
+                self.decode_imu_accel_km308(decoded)
             elif can_id == 0x285: # not in dbc
                 self.decode_imu_gyro(data)
             elif can_id == 0x385: # not in dbc
                 self.decode_imu_euler(data)
             elif can_id == 0x429:
-                self.decode_imu_mag(data)
+                self.decode_imu_mag(decoded)
             
             # IMU2 解码
             elif can_id == 0x188:
-                self.decode_imu2_accel(data)
+                self.decode_imu2_accel(decoded)
             elif can_id == 0x288:
-                self.decode_imu2_gyro(data)
+                self.decode_imu2_gyro(decoded)
             elif can_id == 0x488:
-                self.decode_imu2_quaternion(data)
+                self.decode_imu2_quaternion(decoded)
             
             # Xsens IMU 解码 all not in dbc
             elif can_id == 0x021:
@@ -488,16 +510,21 @@ class RemoteCANServer:
             elif can_id == 0x076:
                 self.decode_xsens_velocity(data)
 
+            # update last_update time for all messages
+            subsystem = self.subsystem_map.get(can_id)
+            if subsystem is None:
+                return
+            if subsystem != 'inverters':
+                self.data_store[subsystem]['last_update'] = time.time()
+            else:
+                inv_num = can_id & 0xF    
+                self.data_store['inverters'][inv_num]['last_update'] = time.time()
+        
         except Exception as e:
             print(f"Failed to decode CAN message ID 0x{can_id:03X}: {e}")
 
     # 所有decode函数（与原代码相同）
-    def decode_timestamp(self, data, can_id = 0x100):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
+    def decode_timestamp(self, decoded):
         ms_since_midnight = decoded.get('MillisecondsSinceMidnight')
         days_since_1984 = decoded.get('DaysSince1984')
             
@@ -506,14 +533,8 @@ class RemoteCANServer:
         decoded_time = datetime.fromtimestamp(total_seconds)
         
         self.data_store['timestamp']['time'] = decoded_time
-        self.data_store['timestamp']['last_update'] = time.time()
 
-    def decode_vcu_cockpit(self, data, can_id = 0x181):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
+    def decode_vcu_cockpit(self, decoded):
         self.data_store['vcu']['steer'] = decoded.get('Steer') * 10000 # dbc scaling weird?
         self.data_store['vcu']['accel'] = decoded.get('Accel')
         self.data_store['vcu']['apps1'] = decoded.get('APPS1')
@@ -521,53 +542,18 @@ class RemoteCANServer:
         self.data_store['vcu']['brake'] = decoded.get('Brake')
         self.data_store['vcu']['bse1'] = decoded.get('BSE1')
         self.data_store['vcu']['bse2'] = decoded.get('BSE2')
-        self.data_store['vcu']['last_update'] = time.time()
 
-    def decode_vcu_suspension(self, data, can_id = 0x381):        
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
+    def decode_vcu_suspension(self, decoded):                    
+        self.data_store['vcu']['suspF'] = decoded.get('SUSP_F') * 0.001 + 0.3 # dbc scaling?
+        self.data_store['vcu']['suspR'] = decoded.get('SUSP_R') * 0.001 + 0.3 # dbc scaling?
 
-        suspF_raw = decoded.get('SUSP_F')
-        suspR_raw = decoded.get('SUSP_R')
+    def decode_gps_basic(self, decoded):
+        self.data_store['gps']['lat'] = decoded.get('Latitude')
+        self.data_store['gps']['lon'] = decoded.get('Logitude') # typo in dbc?
 
-        suspF = suspF_raw * 0.001 + 0.3 # dbc scaling?
-        suspR = suspR_raw * 0.001 + 0.3 # dbc scaling?
-            
-        self.data_store['vcu']['suspF'] = suspF
-        self.data_store['vcu']['suspR'] = suspR
-        self.data_store['vcu']['last_update'] = time.time()
-
-    def decode_gps_basic(self, data, can_id = 0x400):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        lat_raw = decoded.get('Latitude')
-        lon_raw = decoded.get('Logitude') # typo in dbc?
-
-        self.gps_lat = lat_raw
-        self.gps_lon = lon_raw
-            
-        self.data_store['gps']['lat'] = self.gps_lat
-        self.data_store['gps']['lon'] = self.gps_lon
-        self.data_store['gps']['last_update'] = time.time()
-
-    def decode_gps_extended(self, data, can_id = 0x401):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        alt_raw = decoded.get('Altitude')
-        status_byte = decoded.get('Status')
-        self.gps_alt = float(alt_raw)
-
-        self.data_store['gps']['alt'] = self.gps_alt
-        self.data_store['gps']['status'] = status_byte
-        self.data_store['gps']['last_update'] = time.time()
+    def decode_gps_extended(self, decoded):
+        self.data_store['gps']['alt'] = decoded.get('Altitude')
+        self.data_store['gps']['status'] = decoded.get('Status')
 
     def decode_position_covariance(self, data, index):
         if len(data) >= 8 and 0 <= index < 9:
@@ -586,105 +572,37 @@ class RemoteCANServer:
             }
             type_name = covariance_types.get(self.position_covariance_type, "UNKNOWN")
             
-            current_time = time.time()
             self.data_store['covariance']['type'] = self.position_covariance_type
             self.data_store['covariance']['type_name'] = type_name
-            self.data_store['covariance']['last_update'] = current_time
 
-    def decode_velocity_x(self, data, can_id = 0x402):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
+    def decode_velocity_x(self, decoded):
+        self.data_store['velocity']['linear_x'] = decoded.get('Vx') / 1000.0
 
-        vx_raw = decoded.get('Vx')
-        vx = vx_raw / 1000.0
-            
-        self.data_store['velocity']['linear_x'] = vx
-        self.data_store['velocity']['last_update'] = time.time()
+    def decode_velocity_y(self, decoded):
+        self.data_store['velocity']['linear_y'] = decoded.get('Vy') / 1000.0
 
-    def decode_velocity_y(self, data, can_id = 0x403):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
+    def decode_velocity_z(self, decoded):
+        self.data_store['velocity']['linear_z'] = decoded.get('Vz') / 1000.0
 
-        vy_raw = decoded.get('Vy')
-        vy = vy_raw / 1000.0
+    def decode_angular_x(self, decoded):
+        self.data_store['velocity']['angular_x'] = decoded.get('Gx') / 1000.0
 
-        self.data_store['velocity']['linear_y'] = vy
-        self.data_store['velocity']['last_update'] = time.time()
+    def decode_angular_y(self, decoded):
+        self.data_store['velocity']['angular_y'] = decoded.get('Gy') / 1000.0
 
-    def decode_velocity_z(self, data, can_id = 0x404):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
+    def decode_angular_z(self, decoded):
+        self.data_store['velocity']['angular_z'] = decoded.get('Gz') / 1000.0
 
-        vz_raw = decoded.get('Vz')
-        vz = vz_raw / 1000.0
-
-        self.data_store['velocity']['linear_z'] = vz
-        self.data_store['velocity']['last_update'] = time.time()
-
-    def decode_angular_x(self, data, can_id = 0x405):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        wx_raw = decoded.get('Gx')
-        wx = wx_raw / 1000.0
-            
-        self.data_store['velocity']['angular_x'] = wx
-        self.data_store['velocity']['last_update'] = time.time()
-
-    def decode_angular_y(self, data, can_id = 0x406):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        wy_raw = decoded.get('Gy')
-        wy = wy_raw / 1000.0
-
-        self.data_store['velocity']['angular_y'] = wy
-        self.data_store['velocity']['last_update'] = time.time()
-
-    def decode_angular_z(self, data, can_id = 0x407):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        wz_raw = decoded.get('Gz')
-        wz = wz_raw / 1000.0
-
-        self.data_store['velocity']['angular_z'] = wz
-        self.data_store['velocity']['last_update'] = time.time()
-
-    def decode_velocity_magnitude(self, data, can_id = 0x408):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        vmag_raw = decoded.get('Velocity')
-        vmag = vmag_raw / 1000.0
-        speed_kmh = vmag * 3.6
-        
-        self.data_store['velocity']['magnitude'] = vmag
-        self.data_store['velocity']['speed_kmh'] = speed_kmh
-        self.data_store['velocity']['last_update'] = time.time()
+    def decode_velocity_magnitude(self, decoded):
+        self.data_store['velocity']['magnitude'] = decoded.get('Velocity') / 1000.0
+        self.data_store['velocity']['speed_kmh'] = decoded.get('Velocity') / 1000.0 * 3.6
 
     def decode_distance(self, data):
         if len(data) >= 4:
             distance_mm = struct.unpack('<I', data[0:4])[0]
             distance_km = distance_mm / 1000000.0
             
-            current_time = time.time()
             self.data_store['distance']['trip_distance_km'] = distance_km
-            self.data_store['distance']['last_update'] = current_time
 
     def decode_cell_voltage(self, data):
         if len(data) >= 8:
@@ -698,14 +616,11 @@ class RemoteCANServer:
                 voltage = data[i] * 0.02
                 voltages.append(voltage)
             
-            current_time = time.time()
             for i, voltage in enumerate(voltages):
                 array_index = index + i
                 if array_index < 105:
                     self.data_store['accumulator']['cell_voltages'][array_index] = voltage
             
-            self.data_store['accumulator']['last_update'] = current_time
-
     def decode_accumulator_temperature(self, data):
         if len(data) >= 8:
             index = data[0]
@@ -718,21 +633,16 @@ class RemoteCANServer:
                 temp = data[i] - 32  
                 temperatures.append(temp)
             
-            current_time = time.time()
             for i, temp in enumerate(temperatures):
                 array_index = index + i
                 if array_index < 224: 
                     self.data_store['accumulator']['cell_temperatures'][array_index] = temp
 
-            self.data_store['accumulator']['last_update'] = current_time
-
     def decode_accumulator_heartbeat(self, data):
         if len(data) >= 1:
             heartbeat = data[0] == 0x7F
             
-            current_time = time.time()
             self.data_store['accumulator']['heartbeat'] = heartbeat
-            self.data_store['accumulator']['last_update'] = current_time
 
     def decode_accumulator_status(self, data):
         if len(data) >= 7:
@@ -743,11 +653,9 @@ class RemoteCANServer:
             temperature = temp_raw * 0.125
             voltage = voltage_raw / 1024.0
             
-            current_time = time.time()
             self.data_store['accumulator']['status'] = status
             self.data_store['accumulator']['temperature'] = temperature
             self.data_store['accumulator']['voltage'] = voltage
-            self.data_store['accumulator']['last_update'] = current_time
 
     def decode_accumulator_state(self, data):
         if len(data) >= 5:
@@ -755,21 +663,14 @@ class RemoteCANServer:
             current_raw = struct.unpack('<h', data[1:3])[0]
             capacity_raw = struct.unpack('<h', data[3:5])[0] if len(data) >= 5 else 0
             
-            current = current_raw * 0.01 # scaling?
-            capacity = capacity_raw * 0.01 # scaling?
+            current = current_raw * 0.01
+            capacity = capacity_raw * 0.01
             
-            current_time = time.time()
             self.data_store['accumulator']['soc'] = soc
             self.data_store['accumulator']['current'] = current
             self.data_store['accumulator']['capacity'] = capacity
-            self.data_store['accumulator']['last_update'] = current_time
 
-    def decode_inverter_status(self, data, inv_num, can_id):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
+    def decode_inverter_status(self, data, decoded, inv_num):
         # status doesn't match with any dbc signal
         status_word1 = data[0]
         status_word2 = data[1]
@@ -787,46 +688,24 @@ class RemoteCANServer:
             self.data_store['inverters'][inv_num]['status'] = (status_word1, status_word2) 
             self.data_store['inverters'][inv_num]['torque'] = feedback_torque
             self.data_store['inverters'][inv_num]['speed'] = speed
-            self.data_store['inverters'][inv_num]['last_update'] = time.time()
 
-    def decode_inverter_state(self, data, inv_num, can_id):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        dc_voltage = decoded.get('DCvolt')
-        dc_current = decoded.get('DCcurrent')
-            
+    def decode_inverter_state(self, decoded, inv_num):
         if inv_num in self.data_store['inverters']:
-            self.data_store['inverters'][inv_num]['dc_voltage'] = dc_voltage
-            self.data_store['inverters'][inv_num]['dc_current'] = dc_current
-            self.data_store['inverters'][inv_num]['last_update'] = time.time()
+            self.data_store['inverters'][inv_num]['dc_voltage'] = decoded.get('DCvolt')
+            self.data_store['inverters'][inv_num]['dc_current'] = decoded.get('DCcurrent')
 
-    def decode_inverter_temperature(self, data, inv_num, can_id):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        inv_mos_temp = decoded.get('InvMOStemp')
-        mcu_temp = decoded.get('MCUtemp')
-        motor_temp = decoded.get('MOTORtemp')
-
+    def decode_inverter_temperature(self, decoded, inv_num):
         if inv_num in self.data_store['inverters']:
-            self.data_store['inverters'][inv_num]['mos_temp'] = inv_mos_temp
-            self.data_store['inverters'][inv_num]['mcu_temp'] = mcu_temp
-            self.data_store['inverters'][inv_num]['motor_temp'] = motor_temp
-            self.data_store['inverters'][inv_num]['last_update'] = time.time()
+            self.data_store['inverters'][inv_num]['mos_temp'] = decoded.get('InvMOStemp')
+            self.data_store['inverters'][inv_num]['mcu_temp'] = decoded.get('MCUtemp')
+            self.data_store['inverters'][inv_num]['motor_temp'] = decoded.get('MOTORtemp')
 
     def decode_inverter_heartbeat(self, data, inv_num):
         if len(data) >= 1:
             heartbeat = data[0] == 0x05
             
             if inv_num in self.data_store['inverters']:
-                current_time = time.time()
                 self.data_store['inverters'][inv_num]['heartbeat'] = heartbeat
-                self.data_store['inverters'][inv_num]['last_update'] = current_time
 
     def decode_inverter_control(self, data, inv_num):
         if len(data) >= 4:
@@ -836,10 +715,8 @@ class RemoteCANServer:
             if inv_num == (0x213-0x210):
                 target_torque *= -1
             if inv_num in self.data_store['inverters']:
-                current_time = time.time()
                 self.data_store['inverters'][inv_num]['control_word'] = control_word
                 self.data_store['inverters'][inv_num]['target_torque'] = target_torque
-                self.data_store['inverters'][inv_num]['last_update'] = current_time
 
     def decode_imu_accel_km6(self, data):
         if len(data) >= 6:
@@ -851,26 +728,14 @@ class RemoteCANServer:
             y = y_raw * 0.001
             z = z_raw * 0.001
             
-            current_time = time.time()
             self.data_store['imu']['accel_km6']['x'] = x
             self.data_store['imu']['accel_km6']['y'] = y
             self.data_store['imu']['accel_km6']['z'] = z
-            self.data_store['imu']['last_update'] = current_time
 
-    def decode_imu_accel_km308(self, data, can_id = 0x426):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        x = decoded.get('a_x')
-        y = decoded.get('a_y')
-        z = decoded.get('a_z')
-
-        self.data_store['imu']['accel_km308']['x'] = x
-        self.data_store['imu']['accel_km308']['y'] = y
-        self.data_store['imu']['accel_km308']['z'] = z
-        self.data_store['imu']['last_update'] = time.time()
+    def decode_imu_accel_km308(self, decoded):
+        self.data_store['imu']['accel_km308']['x'] = decoded.get('a_x')
+        self.data_store['imu']['accel_km308']['y'] = decoded.get('a_y')
+        self.data_store['imu']['accel_km308']['z'] = decoded.get('a_z')
 
     def decode_imu_gyro(self, data):
         if len(data) >= 6:
@@ -882,11 +747,9 @@ class RemoteCANServer:
             y = y_raw * 0.1
             z = z_raw * 0.1
             
-            current_time = time.time()
             self.data_store['imu']['gyro']['x'] = x
             self.data_store['imu']['gyro']['y'] = y
             self.data_store['imu']['gyro']['z'] = z
-            self.data_store['imu']['last_update'] = current_time
 
     def decode_imu_euler(self, data):
         if len(data) >= 6:
@@ -898,73 +761,30 @@ class RemoteCANServer:
             pitch = pitch_raw * 0.01
             yaw = yaw_raw * 0.01
             
-            current_time = time.time()
             self.data_store['imu']['euler']['roll'] = roll
             self.data_store['imu']['euler']['pitch'] = pitch
             self.data_store['imu']['euler']['yaw'] = yaw
-            self.data_store['imu']['last_update'] = current_time
 
-    def decode_imu_mag(self, data, can_id = 0x429):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
+    def decode_imu_mag(self, decoded):
+        self.data_store['imu']['mag']['x'] = decoded.get('m_x') * 0.1
+        self.data_store['imu']['mag']['y'] = decoded.get('m_y') * 0.1
+        self.data_store['imu']['mag']['z'] = decoded.get('m_z') * 0.1
 
-        x = decoded.get('m_x') * 0.1
-        y = decoded.get('m_y') * 0.1
-        z = decoded.get('m_z') * 0.1
+    def decode_imu2_accel(self, decoded):
+        self.data_store['imu2']['accel']['x'] = decoded.get('a_x')
+        self.data_store['imu2']['accel']['y'] = decoded.get('a_y')
+        self.data_store['imu2']['accel']['z'] = decoded.get('a_z')
 
-        self.data_store['imu']['mag']['x'] = x
-        self.data_store['imu']['mag']['y'] = y
-        self.data_store['imu']['mag']['z'] = z
-        self.data_store['imu']['last_update'] = time.time()
+    def decode_imu2_gyro(self, decoded):
+        self.data_store['imu2']['gyro']['x'] = decoded.get('g_x')
+        self.data_store['imu2']['gyro']['y'] = decoded.get('g_y')
+        self.data_store['imu2']['gyro']['z'] = decoded.get('g_z')
 
-    def decode_imu2_accel(self, data, can_id = 0x188):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        x = decoded.get('a_x')
-        y = decoded.get('a_y')
-        z = decoded.get('a_z')
-
-        self.data_store['imu2']['accel']['x'] = x
-        self.data_store['imu2']['accel']['y'] = y
-        self.data_store['imu2']['accel']['z'] = z
-        self.data_store['imu2']['last_update'] = time.time()
-
-    def decode_imu2_gyro(self, data, can_id = 0x288):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        x = decoded.get('g_x')
-        y = decoded.get('g_y')
-        z = decoded.get('g_z')
-
-        self.data_store['imu2']['gyro']['x'] = x
-        self.data_store['imu2']['gyro']['y'] = y
-        self.data_store['imu2']['gyro']['z'] = z
-        self.data_store['imu2']['last_update'] = time.time()
-
-    def decode_imu2_quaternion(self, data, can_id = 0x488):
-        message = self.db.get_message_by_frame_id(can_id)
-        if len(data) < message.length:
-            return
-        decoded = message.decode(data)
-
-        w = decoded.get('q_w')
-        x = decoded.get('q_x')
-        y = decoded.get('q_y')
-        z = decoded.get('q_z')
-
-        self.data_store['imu2']['quaternion']['w'] = w
-        self.data_store['imu2']['quaternion']['x'] = x
-        self.data_store['imu2']['quaternion']['y'] = y
-        self.data_store['imu2']['quaternion']['z'] = z
-        self.data_store['imu2']['last_update'] = time.time()
+    def decode_imu2_quaternion(self, decoded):
+        self.data_store['imu2']['quaternion']['w'] = decoded.get('q_w')
+        self.data_store['imu2']['quaternion']['x'] = decoded.get('q_x')
+        self.data_store['imu2']['quaternion']['y'] = decoded.get('q_y')
+        self.data_store['imu2']['quaternion']['z'] = decoded.get('q_z')
             
     def decode_xsens_quaternion(self, data):
         if len(data) >= 8:
@@ -979,12 +799,10 @@ class RemoteCANServer:
             q2 = q2_raw * scale
             q3 = q3_raw * scale
             
-            current_time = time.time()
             self.data_store['xsens']['quaternion']['q0'] = q0
             self.data_store['xsens']['quaternion']['q1'] = q1
             self.data_store['xsens']['quaternion']['q2'] = q2
             self.data_store['xsens']['quaternion']['q3'] = q3
-            self.data_store['xsens']['last_update'] = current_time
 
     def decode_xsens_delta_v(self, data):
         if len(data) >= 7:
@@ -997,12 +815,10 @@ class RemoteCANServer:
             y = y_raw * (-7.62939e-06)
             z = z_raw * 7.62939e-06
             
-            current_time = time.time()
             self.data_store['xsens']['delta_v']['x'] = x
             self.data_store['xsens']['delta_v']['y'] = y
             self.data_store['xsens']['delta_v']['z'] = z
             self.data_store['xsens']['delta_v']['exponent'] = exponent
-            self.data_store['xsens']['last_update'] = current_time
 
     def decode_xsens_rate_of_turn(self, data):
         if len(data) >= 6:
@@ -1014,11 +830,9 @@ class RemoteCANServer:
             gyr_y = gyr_y_raw * (-0.00195313)
             gyr_z = gyr_z_raw * 0.00195313
             
-            current_time = time.time()
             self.data_store['xsens']['rate_of_turn']['gyr_x'] = gyr_x
             self.data_store['xsens']['rate_of_turn']['gyr_y'] = gyr_y
             self.data_store['xsens']['rate_of_turn']['gyr_z'] = gyr_z
-            self.data_store['xsens']['last_update'] = current_time
 
     def decode_xsens_delta_q(self, data):
         if len(data) >= 8:
@@ -1033,12 +847,10 @@ class RemoteCANServer:
             dq2 = dq2_raw * scale
             dq3 = dq3_raw * scale
             
-            current_time = time.time()
             self.data_store['xsens']['delta_q']['dq0'] = dq0
             self.data_store['xsens']['delta_q']['dq1'] = dq1
             self.data_store['xsens']['delta_q']['dq2'] = dq2
             self.data_store['xsens']['delta_q']['dq3'] = dq3
-            self.data_store['xsens']['last_update'] = current_time
 
     def decode_xsens_acceleration(self, data):
         if len(data) >= 6:
@@ -1050,11 +862,9 @@ class RemoteCANServer:
             acc_y = acc_y_raw * (-0.00390625)
             acc_z = acc_z_raw * 0.00390625
             
-            current_time = time.time()
             self.data_store['xsens']['acceleration']['acc_x'] = acc_x
             self.data_store['xsens']['acceleration']['acc_y'] = acc_y
             self.data_store['xsens']['acceleration']['acc_z'] = acc_z
-            self.data_store['xsens']['last_update'] = current_time
 
     def decode_xsens_magnetic_field(self, data):
         if len(data) >= 6:
@@ -1066,11 +876,9 @@ class RemoteCANServer:
             mag_y = mag_y_raw * (-0.000976563)
             mag_z = mag_z_raw * 0.000976563
             
-            current_time = time.time()
             self.data_store['xsens']['magnetic_field']['mag_x'] = mag_x
             self.data_store['xsens']['magnetic_field']['mag_y'] = mag_y
             self.data_store['xsens']['magnetic_field']['mag_z'] = mag_z
-            self.data_store['xsens']['last_update'] = current_time
 
     def decode_xsens_latlon(self, data):
         if len(data) >= 8:
@@ -1080,19 +888,15 @@ class RemoteCANServer:
             lat = lat_raw * 5.96046e-08
             lon = lon_raw * 1.19209e-07
             
-            current_time = time.time()
             self.data_store['xsens']['gps']['lat'] = lat
             self.data_store['xsens']['gps']['lon'] = lon
-            self.data_store['xsens']['last_update'] = current_time
 
     def decode_xsens_altitude(self, data):
         if len(data) >= 4:
             alt_raw = struct.unpack('>i', data[0:4])[0]
             alt = alt_raw * 3.05176e-05
             
-            current_time = time.time()
             self.data_store['xsens']['gps']['alt'] = alt
-            self.data_store['xsens']['last_update'] = current_time
 
     def decode_xsens_velocity(self, data):
         if len(data) >= 6:
@@ -1104,11 +908,9 @@ class RemoteCANServer:
             vel_y = vel_y_raw * (-0.015625)
             vel_z = vel_z_raw * 0.015625
             
-            current_time = time.time()
             self.data_store['xsens']['velocity']['vel_x'] = vel_x
             self.data_store['xsens']['velocity']['vel_y'] = vel_y
             self.data_store['xsens']['velocity']['vel_z'] = vel_z
-            self.data_store['xsens']['last_update'] = current_time
 
 
 # Global server instance
