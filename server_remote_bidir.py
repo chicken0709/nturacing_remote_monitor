@@ -684,21 +684,18 @@ class RemoteCANServer:
         if inv_num == (0x213-0x210):
             feedback_torque *= -1
         
-        if inv_num in self.data_store['inverters']:
-            self.data_store['inverters'][inv_num]['status'] = (status_word1, status_word2) 
-            self.data_store['inverters'][inv_num]['torque'] = feedback_torque
-            self.data_store['inverters'][inv_num]['speed'] = speed
+        self.data_store['inverters'][inv_num]['status'] = (status_word1, status_word2) 
+        self.data_store['inverters'][inv_num]['torque'] = feedback_torque
+        self.data_store['inverters'][inv_num]['speed'] = speed
 
     def decode_inverter_state(self, decoded, inv_num):
-        if inv_num in self.data_store['inverters']:
-            self.data_store['inverters'][inv_num]['dc_voltage'] = decoded.get('DCvolt')
-            self.data_store['inverters'][inv_num]['dc_current'] = decoded.get('DCcurrent')
+        self.data_store['inverters'][inv_num]['dc_voltage'] = decoded.get('DCvolt')
+        self.data_store['inverters'][inv_num]['dc_current'] = decoded.get('DCcurrent')
 
     def decode_inverter_temperature(self, decoded, inv_num):
-        if inv_num in self.data_store['inverters']:
-            self.data_store['inverters'][inv_num]['mos_temp'] = decoded.get('InvMOStemp')
-            self.data_store['inverters'][inv_num]['mcu_temp'] = decoded.get('MCUtemp')
-            self.data_store['inverters'][inv_num]['motor_temp'] = decoded.get('MOTORtemp')
+        self.data_store['inverters'][inv_num]['mos_temp'] = decoded.get('InvMOStemp')
+        self.data_store['inverters'][inv_num]['mcu_temp'] = decoded.get('MCUtemp')
+        self.data_store['inverters'][inv_num]['motor_temp'] = decoded.get('MOTORtemp')
 
     def decode_inverter_heartbeat(self, data, inv_num):
         if len(data) >= 1:
