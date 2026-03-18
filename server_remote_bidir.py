@@ -27,7 +27,7 @@ import cantools
 # Configuration
 WEB_PORT = 8888  # 网页服务端口
 DATA_PORT = 8889  # 接收车辆数据的端口
-DBC_FILE = "dbc/NTUR_EP6_260122.dbc"
+DBC_FILE = "dbc/NTUR_EP6_260307.dbc"
 
 app = FastAPI()
 app.add_middleware(
@@ -398,11 +398,17 @@ class RemoteCANServer:
         can_id = msg.arbitration_id
         data = msg.data
         
-        if can_id in self.dbc_supported_can_id:
+        subsystem = self.subsystem_map.get(can_id)
+
+        if can_id in self.dbc_supported_can_id and subsystem != "accumulator":
             message = self.db.get_message_by_frame_id(can_id)
             if len(data) < message.length:
                 return
-            decoded = message.decode(data)
+            try:
+                decoded = message.decode(data)
+            except Exception as e:
+                print(f"DBC decoding error for CAN ID 0x{can_id:03X}: {e}")
+                return
 
         try:
             # Timestamp 解码
@@ -548,8 +554,8 @@ class RemoteCANServer:
         self.data_store['vcu']['suspR'] = decoded.get('SUSP_R') * 0.001 + 0.3 # dbc scaling?
 
     def decode_gps_basic(self, decoded):
-        self.data_store['gps']['lat'] = decoded.get('Latitude')
-        self.data_store['gps']['lon'] = decoded.get('Logitude') # typo in dbc?
+        self.data_store['gps']['lat'] = decoded.get('Latitude') / 1e7
+        self.data_store['gps']['lon'] = decoded.get('Logitude') / 1e7 # typo in dbc?
 
     def decode_gps_extended(self, decoded):
         self.data_store['gps']['alt'] = decoded.get('Altitude')
@@ -768,14 +774,14 @@ class RemoteCANServer:
         self.data_store['imu']['mag']['z'] = decoded.get('m_z') * 0.1
 
     def decode_imu2_accel(self, decoded):
-        self.data_store['imu2']['accel']['x'] = decoded.get('a_x')
-        self.data_store['imu2']['accel']['y'] = decoded.get('a_y')
-        self.data_store['imu2']['accel']['z'] = decoded.get('a_z')
+        self.data_store['imu2']['accel']['x'] = decoded.get('a_x_1')
+        self.data_store['imu2']['accel']['y'] = decoded.get('a_y_1')
+        self.data_store['imu2']['accel']['z'] = decoded.get('a_z_1')
 
     def decode_imu2_gyro(self, decoded):
-        self.data_store['imu2']['gyro']['x'] = decoded.get('g_x')
-        self.data_store['imu2']['gyro']['y'] = decoded.get('g_y')
-        self.data_store['imu2']['gyro']['z'] = decoded.get('g_z')
+        self.data_store['imu2']['gyro']['x'] = decoded.get('g_x_1')
+        self.data_store['imu2']['gyro']['y'] = decoded.get('g_y_1')
+        self.data_store['imu2']['gyro']['z'] = decoded.get('g_z_1')
 
     def decode_imu2_quaternion(self, decoded):
         self.data_store['imu2']['quaternion']['w'] = decoded.get('q_w')
