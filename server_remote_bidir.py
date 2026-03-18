@@ -132,6 +132,11 @@ class RemoteCANServer:
                 'gps': {'lat': None, 'lon': None, 'alt': None},
                 'velocity': {'vel_x': None, 'vel_y': None, 'vel_z': None},
                 'last_update': None
+            },
+            'error' : {
+                'status': None,
+                'active_errors': None,
+                'last_update': None
             }
         }
         
@@ -145,6 +150,7 @@ class RemoteCANServer:
         # decode logic reduction section
 
         self.subsystem_map = {
+            0x81: "error",
             0x100: "timestamp",
             0x181: "vcu", 0x381: "vcu",
             0x400: "gps", 0x401: "gps",
@@ -376,7 +382,8 @@ class RemoteCANServer:
             'update_time': datetime.now().isoformat(),
             'vehicle_clients': len(vehicle_clients),
             'vehicle_connected': self.vehicle_connected,
-            'last_data_time': self.last_data_time
+            'last_data_time': self.last_data_time,
+            'error': self.data_store['error']
         }
         
         # 发送到所有网页客户端
@@ -411,8 +418,10 @@ class RemoteCANServer:
                 return
 
         try:
+            if can_id == 0x81:
+                self.decode_error(data)
             # Timestamp 解码
-            if can_id == 0x100:
+            elif can_id == 0x100:
                 self.decode_timestamp(decoded)
             # VCU 解码
             elif can_id == 0x181:
@@ -529,7 +538,29 @@ class RemoteCANServer:
         except Exception as e:
             print(f"Failed to decode CAN message ID 0x{can_id:03X}: {e}")
 
-    # 所有decode函数（与原代码相同）
+    # decode functions
+    def decode_error(self, data):
+        # check if the data is valid
+        flag = struct.unpack('<B', data[2:3])[0]
+        if flag < 0x30: return
+
+        # get error status and code
+        status = struct.unpack('<H', data[0:2])[0]
+        error_code = struct.unpack('<I', data[3:7])[0]
+
+        # update error status and active errors list
+        if status == 0xff10:
+            # error 
+            self.data_store['error']['status'] = 1
+            self.data_store['error']['active_errors'].append(error_code)
+        elif status == 0x0: 
+            # no error
+            self.data_store['error']['status'] = 0
+            self.data_store['error']['active_errors'].clear()
+        else:
+            print(f"Unknown error status: {status}")
+
+
     def decode_timestamp(self, decoded):
         ms_since_midnight = decoded.get('MillisecondsSinceMidnight')
         days_since_1984 = decoded.get('DaysSince1984')

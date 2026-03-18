@@ -29,6 +29,40 @@ class NTURTDashboard {
         this.loadCurrentMode();
         this.loadCanLoggingStatus();
         console.log('NTURT Dashboard initialized - Version 2026-01-30 with vehicle connection detection');
+    
+        // Error code mapping
+        this.errorCodeMap = {
+            0: "ERR_CODE_STEER",
+            1: "ERR_CODE_ACCEL",
+            2: "ERR_CODE_APPS1",
+            3: "ERR_CODE_APPS2",
+            4: "ERR_CODE_BRAKE",
+            5: "ERR_CODE_BSE1",
+            6: "ERR_CODE_BSE2",
+            7: "ERR_CODE_PEDAL_PLAUS",
+            8: "ERR_CODE_ACC",
+            9: "ERR_CODE_ACC_COMM",
+            10: "ERR_CODE_INV_FL",
+            11: "ERR_CODE_INV_FR",
+            12: "ERR_CODE_INV_RL",
+            13: "ERR_CODE_INV_RR",
+            14: "ERR_CODE_INV_FL_HV_LOW",
+            15: "ERR_CODE_INV_FR_HV_LOW",
+            16: "ERR_CODE_INV_RL_HV_LOW",
+            17: "ERR_CODE_INV_RR_HV_LOW",
+            18: "ERR_CODE_EMCY_STOP",
+            19: "ERR_CODE_CANBUS",
+            20: "ERR_CODE_HB_VCU",
+            21: "ERR_CODE_HB_SENSORS",
+            22: "ERR_CODE_HB_RPI",
+            23: "ERR_CODE_HB_IMU",
+            24: "ERR_CODE_HB_GPS",
+            25: "ERR_CODE_HB_ACC",
+            26: "ERR_CODE_HB_INV_FL",
+            27: "ERR_CODE_HB_INV_FR",
+            28: "ERR_CODE_HB_INV_RL",
+            29: "ERR_CODE_HB_INV_RR",
+        };
     }
 
     closeWebSocket() {
@@ -167,6 +201,9 @@ class NTURTDashboard {
             
             // Update playback controls if available
             this.updatePlaybackControls(data);
+
+            // Update error status
+            this.updateErrorStatus(data.error);
 
         } catch (error) {
             console.error('Error updating dashboard:', error);
@@ -1669,6 +1706,32 @@ class NTURTDashboard {
             }
         } catch (error) {
             console.error('Failed to load CAN logging status:', error);
+        }
+    }
+
+    updateErrorStatus(error) {
+        if (!error) return;
+        const statusText = document.getElementById('error-status-text');
+        const errorList = document.getElementById('error-list');
+
+        if (error.status === 0 || !error.active_errors || error.active_errors.length === 0) {
+            statusText.textContent = '✅ No Errors';
+            statusText.className = 'text-lg font-bold text-green-400';
+            
+            if (errorList) {
+                errorList.innerHTML = '';
+            }
+        } else {
+            statusText.textContent = '🚨 Errors Present';
+            statusText.className = 'text-lg font-bold text-red-400';
+            
+            // Display active errors
+            if (errorList && error.active_errors) {
+                errorList.innerHTML = error.active_errors.map(code => {
+                    const errorName = this.errorCodeMap[code] || `UNKNOWN_ERR_${code}`;
+                    return `<div class="error-item">• ${errorName}</div>`;
+                }).join('');
+            }
         }
     }
 }
