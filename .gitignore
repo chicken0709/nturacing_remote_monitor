@@ -1,5 +1,4 @@
-test.py
-out.txt
-dbc_contents.txt
-LOGS/
 __pycache__/
+LOGS/
+get_dbc_content.py
+dbc_content.txt
