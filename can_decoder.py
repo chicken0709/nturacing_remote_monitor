@@ -11,10 +11,83 @@ from datetime import datetime
 
 DBC_FILE = "dbc/NTUR_EP6_260307.dbc"
 
+# CAN ID : (subsystem, handler_function_name, param_type)
+# param_type: "raw" (data), "decoded" (decoded), "both" (data + decoded)
+MESSAGE_HANDLERS = { 
+    # error
+    0x81 : ("error", "decode_error", "raw"),
+    # timestamp
+    0x100: ("timestamp", "decode_timestamp", "decoded"),
+    # vcu
+    0x181: ("vcu", "decode_vcu_cockpit", "decoded"),
+    0x381: ("vcu", "decode_vcu_suspension", "decoded"),
+    # gps
+    0x400: ("gps", "decode_gps_basic", "decoded"),
+    0x401: ("gps", "decode_gps_extended", "decoded"),
+    # velocity
+    0x402: ("velocity", "decode_velocity_x", "decoded"),
+    0x403: ("velocity", "decode_velocity_y", "decoded"),
+    0x404: ("velocity", "decode_velocity_z", "decoded"),
+    0x405: ("velocity", "decode_angular_x", "decoded"),
+    0x406: ("velocity", "decode_angular_y", "decoded"),
+    0x407: ("velocity", "decode_angular_z", "decoded"),
+    0x408: ("velocity", "decode_velocity_magnitude", "decoded"),
+    0x440: ("distance", "decode_distance", "raw"),
+    # accumulator
+    0x601: ("accumulator", "decode_cell_voltage", "raw"),
+    0x651: ("accumulator", "decode_accumulator_temperature", "raw"),
+    0x710: ("accumulator", "decode_accumulator_heartbeat", "raw"),
+    0x501: ("accumulator", "decode_accumulator_status", "raw"),
+    0x511: ("accumulator", "decode_accumulator_state", "raw"),
+    # inverter
+    0x191: ("inverters", "decode_inverter_status", "both"),
+    0x192: ("inverters", "decode_inverter_status", "both"),
+    0x193: ("inverters", "decode_inverter_status", "both"),
+    0x194: ("inverters", "decode_inverter_status", "both"),
+    0x291: ("inverters", "decode_inverter_state", "decoded"),
+    0x292: ("inverters", "decode_inverter_state", "decoded"),
+    0x293: ("inverters", "decode_inverter_state", "decoded"),
+    0x294: ("inverters", "decode_inverter_state", "decoded"),
+    0x391: ("inverters", "decode_inverter_temperature", "decoded"),
+    0x392: ("inverters", "decode_inverter_temperature", "decoded"),
+    0x393: ("inverters", "decode_inverter_temperature", "decoded"),
+    0x394: ("inverters", "decode_inverter_temperature", "decoded"),
+    0x711: ("inverters", "decode_inverter_heartbeat", "raw"),
+    0x712: ("inverters", "decode_inverter_heartbeat", "raw"),
+    0x713: ("inverters", "decode_inverter_heartbeat", "raw"),
+    0x714: ("inverters", "decode_inverter_heartbeat", "raw"),
+    0x211: ("inverters", "decode_inverter_control", "raw"),
+    0x212: ("inverters", "decode_inverter_control", "raw"),
+    0x213: ("inverters", "decode_inverter_control", "raw"),
+    0x214: ("inverters", "decode_inverter_control", "raw"),
+    # imu
+    0x185: ("imu", "decode_imu_accel_km6", "raw"),
+    0x426: ("imu", "decode_imu_accel_km308", "decoded"),
+    0x285: ("imu", "decode_imu_gyro", "raw"),
+    0x385: ("imu", "decode_imu_euler", "raw"),
+    0x429: ("imu", "decode_imu_mag", "decoded"),
+    # imu2
+    0x188: ("imu2", "decode_imu2_accel", "decoded"),
+    0x288: ("imu2", "decode_imu2_gyro", "decoded"),
+    0x488: ("imu2", "decode_imu2_quaternion", "decoded"),
+}
+
 class CANDecoder:
     def __init__(self):
         # Data storage 
-        self.data_store = {
+        self.data_store = self.create_empty_data_store()
+
+        # load dbc file
+        try:
+            self.db = cantools.database.load_file(DBC_FILE)
+            self.dbc_supported_can_id = set(msg.frame_id for msg in cantools.database.load_file(DBC_FILE).messages)
+            print(f"Loaded DBC file: {DBC_FILE}")
+            print(f"Messages count: {len(self.db.messages)}")
+        except Exception as e:
+            print(f"Error loading DBC file: {e}")
+
+    def create_empty_data_store(self):
+        return {
             'timestamp': {'time': None, 'last_update': None},
             'gps': {
                 'lat': None, 'lon': None, 'alt': None, 'status': None,
@@ -79,42 +152,20 @@ class CANDecoder:
             },
             'error' : {
                 'status': None,
-                'active_errors': None,
+                'active_errors': [],
                 'last_update': None
             }
         }
 
-        # subsystem map
-        self.subsystem_map = {
-            0x81: "error",
-            0x100: "timestamp",
-            0x181: "vcu", 0x381: "vcu",
-            0x400: "gps", 0x401: "gps",
-            0x402: "velocity", 0x403: "velocity", 0x404: "velocity", 0x405: "velocity", 0x406: "velocity", 0x407: "velocity", 0x408: "velocity", 0x440: "distance",
-            0x601: "accumulator", 0x651: "accumulator", 0x710: "accumulator", 0x501: "accumulator", 0x511: "accumulator",
-            0x191: "inverters", 0x192: "inverters", 0x193: "inverters", 0x194: "inverters",
-            0x291: "inverters", 0x292: "inverters", 0x293: "inverters", 0x294: "inverters",
-            0x391: "inverters", 0x392: "inverters", 0x393: "inverters", 0x394: "inverters",
-            0x711: "inverters", 0x712: "inverters", 0x713: "inverters", 0x714: "inverters",
-            0x211: "inverters", 0x212: "inverters", 0x213: "inverters", 0x214: "inverters",
-            0x185: "imu", 0x426: "imu", 0x285: "imu", 0x385: "imu", 0x429: "imu",
-            0x188: "imu2", 0x288: "imu2", 0x488: "imu2",
-        }
-
-        # load dbc file
-        try:
-            self.db = cantools.database.load_file(DBC_FILE)
-            self.dbc_supported_can_id = set(msg.frame_id for msg in cantools.database.load_file(DBC_FILE).messages)
-            print(f"Loaded DBC file: {DBC_FILE}")
-            print(f"Messages count: {len(self.db.messages)}")
-        except Exception as e:
-            print(f"Error loading DBC file: {e}")
-
     def decode_can_message(self, msg):
         can_id = msg.arbitration_id
         data = msg.data
+
+        if can_id not in MESSAGE_HANDLERS:
+            return
         
-        subsystem = self.subsystem_map.get(can_id)
+        subsystem, handler_name, param_type = MESSAGE_HANDLERS[can_id]
+        handler = getattr(self, handler_name)
 
         if can_id in self.dbc_supported_can_id and subsystem != "accumulator":
             message = self.db.get_message_by_frame_id(can_id)
@@ -126,92 +177,23 @@ class CANDecoder:
                 print(f"DBC decoding error for CAN ID 0x{can_id:03X}: {e}")
                 return
 
-        try:
-            if can_id == 0x81:
-                self.decode_error(data)
-            # timestamp 
-            elif can_id == 0x100:
-                self.decode_timestamp(decoded)
-            # VCU 
-            elif can_id == 0x181:
-                self.decode_vcu_cockpit(decoded)
-            elif can_id == 0x381:
-                self.decode_vcu_suspension(decoded)
-            # GPS
-            elif can_id == 0x400:
-                self.decode_gps_basic(decoded)
-            elif can_id == 0x401:
-                self.decode_gps_extended(decoded)
-                
-            # linear velocity and angular velocity
-            elif can_id == 0x402:
-                self.decode_velocity_x(decoded)
-            elif can_id == 0x403:
-                self.decode_velocity_y(decoded)
-            elif can_id == 0x404:
-                self.decode_velocity_z(decoded)
-            elif can_id == 0x405:
-                self.decode_angular_x(decoded)
-            elif can_id == 0x406:
-                self.decode_angular_y(decoded)
-            elif can_id == 0x407:
-                self.decode_angular_z(decoded)
-            elif can_id == 0x408:
-                self.decode_velocity_magnitude(decoded)
-            elif can_id == 0x440: # not in dbc
-                self.decode_distance(data)
-            
-            # accumulator
-            elif can_id == 0x601: # not in dbc
-                self.decode_cell_voltage(data)
-            elif can_id == 0x651: # not in dbc
-                self.decode_accumulator_temperature(data)
-            elif can_id == 0x710: # different type of operation, I'm not sure of the correctness
-                self.decode_accumulator_heartbeat(data)
-            elif can_id == 0x501: # not in dbc
-                self.decode_accumulator_status(data)
-            elif can_id == 0x511: # not in dbc
-                self.decode_accumulator_state(data)
-            
-            # inverter
-            elif 0x191 <= can_id <= 0x194:
-                inv_num = can_id - 0x190
-                self.decode_inverter_status(data, decoded, inv_num)
-            elif 0x291 <= can_id <= 0x294:
-                inv_num = can_id - 0x290
-                self.decode_inverter_state(decoded, inv_num)
-            elif 0x391 <= can_id <= 0x394:
-                inv_num = can_id - 0x390
-                self.decode_inverter_temperature(decoded, inv_num)
-            elif 0x711 <= can_id <= 0x714: # not sure
-                inv_num = can_id - 0x710
-                self.decode_inverter_heartbeat(data, inv_num)
-            elif 0x210 <= can_id <= 0x214: # not sure
-                inv_num = can_id - 0x210
-                self.decode_inverter_control(data, inv_num)
-            
-            # IMU
-            elif can_id == 0x185: # not in dbc
-                self.decode_imu_accel_km6(data)
-            elif can_id == 0x426:
-                self.decode_imu_accel_km308(decoded)
-            elif can_id == 0x285: # not in dbc
-                self.decode_imu_gyro(data)
-            elif can_id == 0x385: # not in dbc
-                self.decode_imu_euler(data)
-            elif can_id == 0x429:
-                self.decode_imu_mag(decoded)
-            
-            # IMU2
-            elif can_id == 0x188:
-                self.decode_imu2_accel(decoded)
-            elif can_id == 0x288:
-                self.decode_imu2_gyro(decoded)
-            elif can_id == 0x488:
-                self.decode_imu2_quaternion(decoded)
+        try: 
+            # decode messages based on subsystem and param_type
+            if subsystem == "inverters":
+                inv_num = can_id & 0xF
+                if param_type == "raw":
+                    handler(data, inv_num)
+                elif param_type == "decoded":
+                    handler(decoded, inv_num)
+                elif param_type == "both":
+                    handler(data, decoded, inv_num)
+            else:
+                if param_type == "raw":
+                    handler(data)
+                elif param_type == "decoded":
+                    handler(decoded)
 
-            # update last_update time for all messages
-            subsystem = self.subsystem_map.get(can_id)
+            # update last_update time
             if subsystem is None:
                 return
             if subsystem != 'inverters':
@@ -257,7 +239,7 @@ class CANDecoder:
         self.data_store['timestamp']['time'] = decoded_time
 
     def decode_vcu_cockpit(self, decoded):
-        self.data_store['vcu']['steer'] = decoded.get('Steer') * 10000 # dbc scaling weird?
+        self.data_store['vcu']['steer'] = decoded.get('Steer') * 10000
         self.data_store['vcu']['accel'] = decoded.get('Accel')
         self.data_store['vcu']['apps1'] = decoded.get('APPS1')
         self.data_store['vcu']['apps2'] = decoded.get('APPS2')
@@ -266,12 +248,12 @@ class CANDecoder:
         self.data_store['vcu']['bse2'] = decoded.get('BSE2')
 
     def decode_vcu_suspension(self, decoded):                    
-        self.data_store['vcu']['suspF'] = decoded.get('SUSP_F') * 0.001 + 0.3 # dbc scaling?
-        self.data_store['vcu']['suspR'] = decoded.get('SUSP_R') * 0.001 + 0.3 # dbc scaling?
+        self.data_store['vcu']['suspF'] = decoded.get('SUSP_F') * 0.001 + 0.3
+        self.data_store['vcu']['suspR'] = decoded.get('SUSP_R') * 0.001 + 0.3
 
     def decode_gps_basic(self, decoded):
         self.data_store['gps']['lat'] = decoded.get('Latitude') / 1e7
-        self.data_store['gps']['lon'] = decoded.get('Logitude') / 1e7 # typo in dbc?
+        self.data_store['gps']['lon'] = decoded.get('Logitude') / 1e7
 
     def decode_gps_extended(self, decoded):
         self.data_store['gps']['alt'] = decoded.get('Altitude')
@@ -380,7 +362,7 @@ class CANDecoder:
         feedback_torque_raw = decoded.get('TorqueFeedback')
         speed_raw = decoded.get('Speed')
 
-        feedback_torque = feedback_torque_raw / 100.0 * 20 * 4 # scaling?
+        feedback_torque = feedback_torque_raw / 100.0 * 20 * 4
         speed = speed_raw
 
         if inv_num == (0x213-0x210):

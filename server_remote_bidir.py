@@ -438,68 +438,7 @@ async def switch_to_realtime():
     # clear data buffer
     if can_server:
         print("🧹 Clearing data buffer before switching to realtime mode...")
-        
-        # reset all data fields to None
-        can_server.data_store['timestamp']['time'] = None
-        can_server.data_store['timestamp']['last_update'] = None
-        
-        can_server.data_store['gps'] = {
-            'lat': None, 'lon': None, 'alt': None, 'status': None,
-            'last_update': None
-        }
-        
-        can_server.data_store['velocity'] = {
-            'linear_x': None, 'linear_y': None, 'linear_z': None,
-            'angular_x': None, 'angular_y': None, 'angular_z': None,
-            'magnitude': None, 'speed_kmh': None,
-            'last_update': None
-        }
-        
-        can_server.data_store['distance'] = {
-            'trip_distance_km': None,
-            'last_update': None
-        }
-        
-        can_server.data_store['accumulator'] = {
-            'soc': None, 'voltage': None, 'current': None, 'temperature': None,
-            'status': None, 'heartbeat': None, 'capacity': None,
-            'cell_voltages': [None] * 105, 'cell_temperatures': [None] * 224,
-            'last_update': None
-        }
-        
-        for inv_num in [1, 2, 3, 4]:
-            can_server.data_store['inverters'][inv_num] = {
-                'name': can_server.data_store['inverters'][inv_num]['name'],
-                'status': None, 'torque': None, 'speed': None,
-                'control_word': None, 'target_torque': None,
-                'dc_voltage': None, 'dc_current': None,
-                'mos_temp': None, 'mcu_temp': None, 'motor_temp': None,
-                'heartbeat': None, 'last_update': None
-            }
-        
-        can_server.data_store['vcu'] = {
-            'steer': None, 'accel': None, 'apps1': None,    
-            'apps2': None, 'brake': None, 'bse1': None, 'bse2': None,
-            'suspF': None, 'suspR': None,
-            'last_update': None
-        }
-        
-        can_server.data_store['imu'] = {
-            'accel_km6': {'x': None, 'y': None, 'z': None},
-            'accel_km308': {'x': None, 'y': None, 'z': None},
-            'gyro': {'x': None, 'y': None, 'z': None},
-            'euler': {'roll': None, 'pitch': None, 'yaw': None},
-            'mag': {'x': None, 'y': None, 'z': None},
-            'last_update': None
-        }
-        
-        can_server.data_store['imu2'] = {
-            'accel': {'x': None, 'y': None, 'z': None},
-            'gyro': {'x': None, 'y': None, 'z': None},
-            'quaternion': {'w': None, 'x': None, 'y': None, 'z': None},
-            'last_update': None
-        }
-        
+        can_server.data_store = can_server.decoder.create_empty_data_store()
         print("✅ Data buffer cleared")
     
     client_id = list(vehicle_clients.keys())[0]
