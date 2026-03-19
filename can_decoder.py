@@ -284,9 +284,7 @@ class CANDecoder:
     def decode_distance(self, data):
         if len(data) >= 4:
             distance_mm = struct.unpack('<I', data[0:4])[0]
-            distance_km = distance_mm / 1000000.0
-            
-            self.data_store['distance']['trip_distance_km'] = distance_km
+            self.data_store['distance']['trip_distance_km'] = distance_mm / 1000000.0
 
     def decode_cell_voltage(self, data):
         if len(data) >= 8:
@@ -325,21 +323,17 @@ class CANDecoder:
     def decode_accumulator_heartbeat(self, data):
         if len(data) >= 1:
             heartbeat = data[0] == 0x7F
-            
             self.data_store['accumulator']['heartbeat'] = heartbeat
 
     def decode_accumulator_status(self, data):
         if len(data) >= 7:
             status = data[0]
-            temp_raw = struct.unpack('<h', data[1:3])[0]
+            temperature_raw = struct.unpack('<h', data[1:3])[0]
             voltage_raw = struct.unpack('<I', data[3:7])[0] if len(data) >= 7 else 0
             
-            temperature = temp_raw * 0.125
-            voltage = voltage_raw / 1024.0
-            
             self.data_store['accumulator']['status'] = status
-            self.data_store['accumulator']['temperature'] = temperature
-            self.data_store['accumulator']['voltage'] = voltage
+            self.data_store['accumulator']['temperature'] = temperature_raw * 0.125
+            self.data_store['accumulator']['voltage'] = voltage_raw / 1024.0
 
     def decode_accumulator_state(self, data):
         if len(data) >= 5:
@@ -347,12 +341,9 @@ class CANDecoder:
             current_raw = struct.unpack('<h', data[1:3])[0]
             capacity_raw = struct.unpack('<h', data[3:5])[0] if len(data) >= 5 else 0
             
-            current = current_raw * 0.01
-            capacity = capacity_raw * 0.01
-            
             self.data_store['accumulator']['soc'] = soc
-            self.data_store['accumulator']['current'] = current
-            self.data_store['accumulator']['capacity'] = capacity
+            self.data_store['accumulator']['current'] = current_raw * 0.01
+            self.data_store['accumulator']['capacity'] = capacity_raw * 0.01
 
     def decode_inverter_status(self, data, decoded, inv_num):
         # status doesn't match with any dbc signal
@@ -365,7 +356,7 @@ class CANDecoder:
         feedback_torque = feedback_torque_raw / 100.0 * 20 * 4
         speed = speed_raw
 
-        if inv_num == (0x213-0x210):
+        if inv_num == 3:
             feedback_torque *= -1
         
         self.data_store['inverters'][inv_num]['status'] = (status_word1, status_word2) 
@@ -384,20 +375,19 @@ class CANDecoder:
     def decode_inverter_heartbeat(self, data, inv_num):
         if len(data) >= 1:
             heartbeat = data[0] == 0x05
-            
-            if inv_num in self.data_store['inverters']:
-                self.data_store['inverters'][inv_num]['heartbeat'] = heartbeat
+            self.data_store['inverters'][inv_num]['heartbeat'] = heartbeat
 
     def decode_inverter_control(self, data, inv_num):
         if len(data) >= 4:
             control_word = struct.unpack('<H', data[0:2])[0]
             target_torque_raw = struct.unpack('<h', data[2:4])[0]
             target_torque = target_torque_raw / 1000.0 * 20
-            if inv_num == (0x213-0x210):
+
+            if inv_num == 3:
                 target_torque *= -1
-            if inv_num in self.data_store['inverters']:
-                self.data_store['inverters'][inv_num]['control_word'] = control_word
-                self.data_store['inverters'][inv_num]['target_torque'] = target_torque
+
+            self.data_store['inverters'][inv_num]['control_word'] = control_word
+            self.data_store['inverters'][inv_num]['target_torque'] = target_torque
 
     def decode_imu_accel_km6(self, data):
         if len(data) >= 6:
@@ -405,13 +395,9 @@ class CANDecoder:
             y_raw = struct.unpack('<h', data[2:4])[0]
             z_raw = struct.unpack('<h', data[4:6])[0]
             
-            x = x_raw * 0.001
-            y = y_raw * 0.001
-            z = z_raw * 0.001
-            
-            self.data_store['imu']['accel_km6']['x'] = x
-            self.data_store['imu']['accel_km6']['y'] = y
-            self.data_store['imu']['accel_km6']['z'] = z
+            self.data_store['imu']['accel_km6']['x'] = x_raw * 0.001
+            self.data_store['imu']['accel_km6']['y'] = y_raw * 0.001
+            self.data_store['imu']['accel_km6']['z'] = z_raw * 0.001
 
     def decode_imu_accel_km308(self, decoded):
         self.data_store['imu']['accel_km308']['x'] = decoded.get('a_x')
@@ -424,13 +410,9 @@ class CANDecoder:
             y_raw = struct.unpack('<h', data[2:4])[0]
             z_raw = struct.unpack('<h', data[4:6])[0]
             
-            x = x_raw * 0.1
-            y = y_raw * 0.1
-            z = z_raw * 0.1
-            
-            self.data_store['imu']['gyro']['x'] = x
-            self.data_store['imu']['gyro']['y'] = y
-            self.data_store['imu']['gyro']['z'] = z
+            self.data_store['imu']['gyro']['x'] = x_raw * 0.1
+            self.data_store['imu']['gyro']['y'] = y_raw * 0.1
+            self.data_store['imu']['gyro']['z'] = z_raw * 0.1
 
     def decode_imu_euler(self, data):
         if len(data) >= 6:
@@ -438,13 +420,9 @@ class CANDecoder:
             pitch_raw = struct.unpack('<h', data[2:4])[0]
             yaw_raw = struct.unpack('<h', data[4:6])[0]
             
-            roll = roll_raw * 0.01
-            pitch = pitch_raw * 0.01
-            yaw = yaw_raw * 0.01
-            
-            self.data_store['imu']['euler']['roll'] = roll
-            self.data_store['imu']['euler']['pitch'] = pitch
-            self.data_store['imu']['euler']['yaw'] = yaw
+            self.data_store['imu']['euler']['roll'] = roll_raw * 0.01
+            self.data_store['imu']['euler']['pitch'] = pitch_raw * 0.01
+            self.data_store['imu']['euler']['yaw'] = yaw_raw * 0.01
 
     def decode_imu_mag(self, decoded):
         self.data_store['imu']['mag']['x'] = decoded.get('m_x') * 0.1
