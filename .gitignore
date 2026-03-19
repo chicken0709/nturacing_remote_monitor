@@ -2,3 +2,4 @@ test.py
 out.txt
 dbc_contents.txt
 LOGS/
+__pycache__/

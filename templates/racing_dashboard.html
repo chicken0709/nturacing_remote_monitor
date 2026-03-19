@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAN Data Monitor - NTUR Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/racing_dashboard.js" defer></script>
+    <link rel="stylesheet" href="/static/css/racing_dashboard.css">
+</head>
+<body class="bg-gradient-to-br from-gray-100 to-gray-200 min-h-screen">
+    <!-- 返回主頁按钮 -->
+    <a href="/" class="fixed top-5 left-5 z-50 px-4 py-2 rounded-lg flex items-center space-x-2 text-white font-medium shadow-lg transition-all hover:scale-105" style="backdrop-filter: blur(10px); background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(37, 99, 235, 0.9) 100%);">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+        </svg>
+        <span>Home</span>
+    </a>
+
+    <div class="container mx-auto px-4 py-6">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl shadow-lg p-6 mb-6 text-white">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-4xl font-bold">NTUR Dashboard</h1>
+                    <p class="text-blue-100 text-lg">Real-time Vehicle Telemetry System</p>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm text-blue-100">CAN Messages</div>
+                    <div id="message-count" class="text-3xl font-bold">0</div>
+                    <div id="connection-status" class="text-sm text-green-300 flex items-center justify-end">
+                        <span class="heartbeat-indicator heartbeat-ok mr-2"></span>
+                        Connected
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Battery Information Bar -->
+        <div class="bg-slate-800 rounded-xl p-4 mb-6 shadow-lg">
+            <h3 class="text-lg font-bold text-white mb-3 flex items-center">
+                <svg class="w-5 h-5 mr-2 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33V20c0 .73.6 1.33 1.33 1.33h8.34c.73 0 1.33-.6 1.33-1.33V5.33C18 4.6 17.4 4 16.67 4z"/>
+                </svg>
+                Battery Status
+            </h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- State of Charge -->
+                <div class="bg-slate-700 rounded-lg p-3">
+                    <div class="text-sm text-gray-300 mb-1">State of Charge</div>
+                    <div class="bg-slate-600 rounded-full h-4 mb-2 overflow-hidden">
+                        <div id="battery-soc-bar" class="battery-bar bg-green-500 h-full rounded transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span id="battery-soc-value" class="text-white font-bold text-lg">0%</span>
+                        <span class="text-xs text-gray-400">SOC</span>
+                    </div>
+                </div>
+
+                <!-- Battery Temperature -->
+                <div class="bg-slate-700 rounded-lg p-3">
+                    <div class="text-sm text-gray-300 mb-1">Temperature</div>
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div id="battery-temp-value" class="text-green-400 font-bold text-xl">--°C</div>
+                            <div class="text-xs text-gray-400">Pack Temp</div>
+                        </div>
+                        <svg class="w-8 h-8 text-orange-400" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M15 13V5c0-1.66-1.34-3-3-3S9 3.34 9 5v8c-1.21.91-2 2.37-2 4 0 2.76 2.24 5 5 5s5-2.24 5-5c0-1.63-.79-3.09-2-4zM11 5c0-.55.45-1 1-1s1 .45 1 1h-2v0zm4 12c0 1.66-1.34 3-3 3s-3-1.34-3-3c0-1 .49-1.88 1.24-2.42L11 14V6h2v8l.76.58C14.51 15.12 15 16 15 17z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Total Cell Voltage -->
+                <div class="bg-slate-700 rounded-lg p-3">
+                    <div class="text-sm text-gray-300 mb-1">Cell Voltage Sum</div>
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div id="battery-voltage-value" class="text-blue-400 font-bold text-xl">--V</div>
+                            <div id="battery-cells-count" class="text-xs text-gray-400">0 cells</div>
+                        </div>
+                        <svg class="w-8 h-8 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M14.5 7.5V6c0-.55-.45-1-1-1h-3c-.55 0-1 .45-1 1v1.5h5zm-5 8V18c0 .55.45 1 1 1h3c.55 0 1-.45 1-1v-2.5h-5zM7 9v6h1.5V9H7zm8.5 0v6H17V9h-1.5z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Pack Voltage & Current -->
+                <div class="bg-slate-700 rounded-lg p-3">
+                    <div class="text-sm text-gray-300 mb-1">Pack Status</div>
+                    <div class="space-y-1">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs text-gray-400">Voltage:</span>
+                            <span id="battery-pack-voltage" class="text-purple-400 font-bold">--V</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs text-gray-400">Current:</span>
+                            <span id="battery-current-value" class="text-orange-400 font-bold">--A</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Layout -->
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+            <!-- Speed & Primary Metrics -->
+            <div class="data-card">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Vehicle Speed</h2>
+                <div class="dashboard-gauge w-48 h-48 mx-auto mb-4">
+                    <div class="text-center z-10">
+                        <div id="dashboard-speed" class="text-4xl font-bold">0</div>
+                        <div class="text-sm opacity-80">km/h</div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4 text-center">
+                    <div>
+                        <div class="text-sm text-gray-600">SOC</div>
+                        <div id="dashboard-soc" class="text-2xl font-bold text-green-600">--</div>
+                    </div>
+                    <div>
+                        <div class="text-sm text-gray-600">Voltage</div>
+                        <div id="dashboard-voltage" class="text-2xl font-bold text-blue-600">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VCU Controls -->
+            <div class="data-card vcu">
+                <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                    <span class="w-4 h-4 bg-indigo-500 rounded-full mr-2"></span>
+                    VCU Controls
+                </h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="vcu-control">
+                        <div class="text-sm opacity-80">Steering</div>
+                        <div id="vcu-steer" class="text-xl font-bold">--</div>
+                    </div>
+                    <div class="vcu-control">
+                        <div class="text-sm opacity-80">Accelerator</div>
+                        <div id="vcu-accel" class="text-xl font-bold">--%</div>
+                    </div>
+                    <div class="vcu-control">
+                        <div class="text-sm opacity-80">APPS1</div>
+                        <div id="vcu-apps1" class="text-lg font-bold">--</div>
+                    </div>
+                    <div class="vcu-control">
+                        <div class="text-sm opacity-80">APPS2</div>
+                        <div id="vcu-apps2" class="text-lg font-bold">--</div>
+                    </div>
+                    <div class="vcu-control">
+                        <div class="text-sm opacity-80">Brake</div>
+                        <div id="vcu-brake" class="text-lg font-bold">--%</div>
+                    </div>
+                    <div class="vcu-control">
+                        <div class="text-sm opacity-80">BSE1</div>
+                        <div id="vcu-bse1" class="text-lg font-bold">--</div>
+                    </div>
+                </div>
+                <div class="mt-4 text-center">
+                    <div class="vcu-control">
+                        <div class="text-sm opacity-80">BSE2</div>
+                        <div id="vcu-bse2" class="text-lg font-bold">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Status -->
+            <div class="data-card">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">System Status</h2>
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <span>Accumulator</span>
+                        <span id="sys-acc-heartbeat" class="heartbeat-indicator heartbeat-fail"></span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Inverter FL</span><span id="inv1-rpm" class="ml-2 text-blue-600 text-sm">SPEED: N/A kmh</span></span>
+                        <span class="heartbeat-indicator heartbeat-fail" data-inv="1"></span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Inverter FR</span><span id="inv2-rpm" class="ml-2 text-blue-600 text-sm">SPEED: N/A kmh</span></span>
+                        <span class="heartbeat-indicator heartbeat-fail" data-inv="2"></span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Inverter RL</span><span id="inv3-rpm" class="ml-2 text-blue-600 text-sm">SPEED: N/A kmh</span></span>
+                        <span class="heartbeat-indicator heartbeat-fail" data-inv="3"></span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Inverter RR</span><span id="inv4-rpm" class="ml-2 text-blue-600 text-sm">SPEED: N/A kmh</span></span>
+                        <span class="heartbeat-indicator heartbeat-fail" data-inv="4"></span>
+                    </div>
+                </div>
+                <div class="mt-4 pt-4 border-t">
+                    <div class="text-sm text-gray-600">Temperature</div>
+                    <div id="dashboard-temp" class="text-lg font-bold text-orange-600">--°C</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GPS Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- GPS Data -->
+            <div class="data-card gps">
+                <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                    <span class="w-4 h-4 bg-blue-500 rounded-full mr-2"></span>
+                    GPS Data
+                </h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <div class="text-sm text-gray-600">Latitude</div>
+                        <div id="gps-lat" class="value-display text-lg">N/A</div>
+                    </div>
+                    <div>
+                        <div class="text-sm text-gray-600">Longitude</div>
+                        <div id="gps-lon" class="value-display text-lg">N/A</div>
+                    </div>
+                    <div>
+                        <div class="text-sm text-gray-600">Altitude</div>
+                        <div id="gps-alt" class="value-display text-lg">N/A</div>
+                    </div>
+                    <div>
+                        <div class="text-sm text-gray-600">Status</div>
+                        <div id="gps-status" class="value-display text-lg">N/A</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPS Map -->
+            <div class="data-card gps">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">Real-time Location</h2>
+                    <div class="flex gap-2">
+                        <button id="toggle-track-btn" class="btn-primary text-sm">Enable Track</button>
+                        <button id="clear-track-btn" class="btn-secondary text-sm">Clear Track</button>
+                    </div>
+                </div>
+                <div id="map" class="map-container"></div>
+            </div>
+        </div>
+
+        <!-- Detailed Velocity Data -->
+        <div class="data-card velocity mb-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                <span class="w-4 h-4 bg-green-500 rounded-full mr-2"></span>
+                Velocity & Motion Data
+            </h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                    <div class="text-sm text-gray-600">Linear X</div>
+                    <div id="vel-linear-x" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Linear Y</div>
+                    <div id="vel-linear-y" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Linear Z</div>
+                    <div id="vel-linear-z" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Speed</div>
+                    <div id="vel-speed" class="value-display text-lg text-blue-600 font-bold">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Angular X</div>
+                    <div id="vel-angular-x" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Angular Y</div>
+                    <div id="vel-angular-y" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Angular Z</div>
+                    <div id="vel-angular-z" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Magnitude</div>
+                    <div id="vel-magnitude" class="value-display text-lg">N/A</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Accumulator Section with Collapsible Details -->
+        <div class="data-card accumulator mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-gray-800 flex items-center">
+                    <span class="w-4 h-4 bg-yellow-500 rounded-full mr-2"></span>
+                    Accumulator Data
+                    <span id="acc-heartbeat" class="heartbeat-indicator heartbeat-fail ml-2"></span>
+                </h2>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
+                <div>
+                    <div class="text-sm text-gray-600">SOC</div>
+                    <div id="acc-soc" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Voltage</div>
+                    <div id="acc-voltage" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Current</div>
+                    <div id="acc-current" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Temperature</div>
+                    <div id="acc-temperature" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Status</div>
+                    <div id="acc-status" class="value-display text-lg">N/A</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-600">Capacity</div>
+                    <div id="acc-capacity" class="value-display text-lg">N/A</div>
+                </div>
+            </div>
+
+            <!-- Collapsible Cell Voltages -->
+            <div class="border-t pt-4">
+                <div class="collapsible bg-gray-50 p-3 rounded-lg mb-2" onclick="toggleCollapsible('cell-voltages')">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-gray-800">Cell Voltages (105 Cells)</h3>
+                        <svg id="cell-voltages-icon" class="w-5 h-5 transform transition-transform" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div id="cell-voltages-content" class="collapsible-content">
+                    <div id="acc-cell-voltages" class="space-y-2 bg-gray-50 p-4 rounded-lg">
+                        <!-- Voltage segments will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Collapsible Cell Temperatures -->
+            <div class="border-t pt-4 mt-4">
+                <div class="collapsible bg-gray-50 p-3 rounded-lg mb-2" onclick="toggleCollapsible('cell-temps')">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-gray-800">Cell Temperatures (224 Cells)</h3>
+                        <svg id="cell-temps-icon" class="w-5 h-5 transform transition-transform" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div id="cell-temps-content" class="collapsible-content">
+                    <div id="acc-cell-temps" class="space-y-2 bg-gray-50 p-4 rounded-lg">
+                        <!-- Temperature segments will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Inverters Section -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <!-- Front Inverters -->
+            <div class="data-card inverter">
+                <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                    <span class="w-4 h-4 bg-purple-500 rounded-full mr-2"></span>
+                    Front Inverters (FL / FR)
+                </h2>
+                <div class="space-y-4">
+                    <div id="inverter-1" class="inverter-card">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-bold text-gray-800">FL (Front Left) </span>
+                            <span class="heartbeat-indicator heartbeat-fail" data-inv="1"></span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm text-gray-700">
+                            <div class="col-span-2"><span class="inv-status">N/A</span></div>
+                            <div>Torque: <span class="inv-torque">N/A</span></div>
+                            <div>Speed: <span class="inv-speed">N/A</span></div>
+                            <div>DC Voltage: <span class="inv-dc-voltage">N/A</span></div>
+                            <div>DC Current: <span class="inv-dc-current">N/A</span></div>
+                            <div>MOS Temp: <span class="inv-mos-temp">N/A</span></div>
+                            <div>MCU Temp: <span class="inv-mcu-temp">N/A</span></div>
+                            <div>Motor Temp: <span class="inv-motor-temp">N/A</span></div>
+                            <div>Heartbeat: <span class="inv-heartbeat">N/A</span></div>
+                        </div>
+                    </div>
+                    <div id="inverter-2" class="inverter-card">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-bold text-gray-800">FR (Front Right) </span>
+                            <span class="heartbeat-indicator heartbeat-fail" data-inv="2"></span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm text-gray-700">
+                            <div class="col-span-2"><span class="inv-status">N/A</span></div>
+                            <div>Torque: <span class="inv-torque">N/A</span></div>
+                            <div>Speed: <span class="inv-speed">N/A</span></div>
+                            <div>DC Voltage: <span class="inv-dc-voltage">N/A</span></div>
+                            <div>DC Current: <span class="inv-dc-current">N/A</span></div>
+                            <div>MOS Temp: <span class="inv-mos-temp">N/A</span></div>
+                            <div>MCU Temp: <span class="inv-mcu-temp">N/A</span></div>
+                            <div>Motor Temp: <span class="inv-motor-temp">N/A</span></div>
+                            <div>Heartbeat: <span class="inv-heartbeat">N/A</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rear Inverters -->
+            <div class="data-card inverter">
+                <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                    <span class="w-4 h-4 bg-purple-500 rounded-full mr-2"></span>
+                    Rear Inverters (RL / RR)
+                </h2>
+                <div class="space-y-4">
+                    <div id="inverter-3" class="inverter-card">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-bold text-gray-800">RL (Rear Left)</span>
+                            <span class="heartbeat-indicator heartbeat-fail" data-inv="3"></span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm text-gray-700">
+                            <div class="col-span-2"><span class="inv-status">N/A</span></div>
+                            <div>Torque: <span class="inv-torque">N/A</span></div>
+                            <div>Speed: <span class="inv-speed">N/A</span></div>
+                            <div>DC Voltage: <span class="inv-dc-voltage">N/A</span></div>
+                            <div>DC Current: <span class="inv-dc-current">N/A</span></div>
+                            <div>MOS Temp: <span class="inv-mos-temp">N/A</span></div>
+                            <div>MCU Temp: <span class="inv-mcu-temp">N/A</span></div>
+                            <div>Motor Temp: <span class="inv-motor-temp">N/A</span></div>
+                            <div>Heartbeat: <span class="inv-heartbeat">N/A</span></div>
+                        </div>
+                    </div>
+                    <div id="inverter-4" class="inverter-card">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-bold text-gray-800">RR (Rear Right)</span>
+                            <span class="heartbeat-indicator heartbeat-fail" data-inv="4"></span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm text-gray-700">
+                            <div class="col-span-2"><span class="inv-status">N/A</span></div>
+                            <div>Torque: <span class="inv-torque">N/A</span></div>
+                            <div>Speed: <span class="inv-speed">N/A</span></div>
+                            <div>DC Voltage: <span class="inv-dc-voltage">N/A</span></div>
+                            <div>DC Current: <span class="inv-dc-current">N/A</span></div>
+                            <div>MOS Temp: <span class="inv-mos-temp">N/A</span></div>
+                            <div>MCU Temp: <span class="inv-mcu-temp">N/A</span></div>
+                            <div>Motor Temp: <span class="inv-motor-temp">N/A</span></div>
+                            <div>Heartbeat: <span class="inv-heartbeat">N/A</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-white rounded-xl shadow-lg p-6 text-center text-gray-500">
+            <p class="mb-2">Last Update: <span id="last-update" class="font-mono">N/A</span></p>
+            <p class="text-sm">NTUR Racing Team - Enhanced CAN Data Monitor v2.0</p>
+        </div>
+    </div>
+</body>
+</html>

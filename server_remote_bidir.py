@@ -5,30 +5,26 @@ This script runs on the remote Raspberry Pi.
 It receives CAN data from vehicle clients and serves web dashboard to users.
 """
 
-import can
-import struct
+import time
+import json
 import asyncio
+import uvicorn
+import websockets
+from datetime import datetime
+from typing import List, Dict
 from fastapi import FastAPI, WebSocket, Request
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-from datetime import datetime
-import time
-import json
-import threading
-from typing import List, Dict
-import csv
-import os
-import websockets
-import cantools
+
+from can_decoder import CANDecoder
 
 # Configuration
-WEB_PORT = 8888  # 网页服务端口
-DATA_PORT = 8889  # 接收车辆数据的端口
-DBC_FILE = "dbc/NTUR_EP6_260307.dbc"
+WEB_PORT = 8888  # server hosting port
+DATA_PORT = 8889  # port for client connections
 
+# FastAPI app setup
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -52,140 +48,24 @@ class RemoteCANServer:
         # Connection status
         self.vehicle_connected = False
         self.last_data_time = None
-        self.connection_timeout = 3.0  # 3秒没有数据则判定断线
+        self.connection_timeout = 3.0  # diconnect if no data for 3 seconds
         
-        # Data storage (相同的数据结构)
-        self.data_store = {
-            'timestamp': {'time': None, 'last_update': None},
-            'gps': {
-                'lat': None, 'lon': None, 'alt': None, 'status': None,
-                'last_update': None
-            },
-            'covariance': {
-                'values': [0.0] * 9, 'type': 0, 'type_name': 'UNKNOWN',
-                'last_update': None
-            },
-            'velocity': {
-                'linear_x': None, 'linear_y': None, 'linear_z': None,
-                'angular_x': None, 'angular_y': None, 'angular_z': None,
-                'magnitude': None, 'speed_kmh': None,
-                'last_update': None
-            },
-            'accumulator': {
-                'soc': None, 'voltage': None, 'current': None, 'temperature': None,
-                'status': None, 'heartbeat': None, 'capacity': None,
-                'cell_voltages': [None] * 105, 'cell_temperatures': [None] * 224,
-                'last_update': None
-            },
-            'inverters': {
-                1: {'name': 'FL', 'status': None, 'torque': None, 'speed': None,
-                    'control_word': None, 'target_torque': None,
-                    'dc_voltage': None, 'dc_current': None,
-                    'mos_temp': None, 'mcu_temp': None, 'motor_temp': None,
-                    'heartbeat': None, 'last_update': None},
-                2: {'name': 'FR', 'status': None, 'torque': None, 'speed': None,
-                    'control_word': None, 'target_torque': None,
-                    'dc_voltage': None, 'dc_current': None,
-                    'mos_temp': None, 'mcu_temp': None, 'motor_temp': None,
-                    'heartbeat': None, 'last_update': None},
-                3: {'name': 'RL', 'status': None, 'torque': None, 'speed': None,
-                    'control_word': None, 'target_torque': None,
-                    'dc_voltage': None, 'dc_current': None,
-                    'mos_temp': None, 'mcu_temp': None, 'motor_temp': None,
-                    'heartbeat': None, 'last_update': None},
-                4: {'name': 'RR', 'status': None, 'torque': None, 'speed': None,
-                    'control_word': None, 'target_torque': None,
-                    'dc_voltage': None, 'dc_current': None,
-                    'mos_temp': None, 'mcu_temp': None, 'motor_temp': None,
-                    'heartbeat': None, 'last_update': None}
-            },
-            'vcu': {
-                'steer': None, 'accel': None, 'apps1': None,    
-                'apps2': None, 'brake': None, 'bse1': None, 'bse2': None,
-                'suspF': None, 'suspR': None,
-                'last_update': None},
-            'imu': {
-                'accel_km6': {'x': None, 'y': None, 'z': None},
-                'accel_km308': {'x': None, 'y': None, 'z': None},
-                'gyro': {'x': None, 'y': None, 'z': None},
-                'euler': {'roll': None, 'pitch': None, 'yaw': None},
-                'mag': {'x': None, 'y': None, 'z': None},
-                'last_update': None
-            },
-            'imu2': {
-                'accel': {'x': None, 'y': None, 'z': None},
-                'gyro': {'x': None, 'y': None, 'z': None},
-                'quaternion': {'w': None, 'x': None, 'y': None, 'z': None},
-                'last_update': None
-            },
-            'distance': {
-                'trip_distance_km': None,
-                'last_update': None
-            },
-            'xsens': {
-                'quaternion': {'q0': None, 'q1': None, 'q2': None, 'q3': None},
-                'delta_v': {'x': None, 'y': None, 'z': None, 'exponent': None},
-                'rate_of_turn': {'gyr_x': None, 'gyr_y': None, 'gyr_z': None},
-                'delta_q': {'dq0': None, 'dq1': None, 'dq2': None, 'dq3': None},
-                'acceleration': {'acc_x': None, 'acc_y': None, 'acc_z': None},
-                'magnetic_field': {'mag_x': None, 'mag_y': None, 'mag_z': None},
-                'gps': {'lat': None, 'lon': None, 'alt': None},
-                'velocity': {'vel_x': None, 'vel_y': None, 'vel_z': None},
-                'last_update': None
-            },
-            'error' : {
-                'status': None,
-                'active_errors': None,
-                'last_update': None
-            }
-        }
-        
+        # Initialize CAN decoder
+        self.decoder = CANDecoder()
+        self.data_store = self.decoder.data_store
+
         self.message_count = 0
         self.running = True
-        
-        # Position covariance 暂存
-        self.position_covariance = [0.0] * 9
-        self.position_covariance_type = 0
-
-        # decode logic reduction section
-
-        self.subsystem_map = {
-            0x81: "error",
-            0x100: "timestamp",
-            0x181: "vcu", 0x381: "vcu",
-            0x400: "gps", 0x401: "gps",
-            0x410: "covariance", 0x411: "covariance", 0x412: "covariance", 0x413: "covariance", 0x414: "covariance", 0x415: "covariance", 0x416: "covariance", 0x417: "covariance", 0x418: "covariance", 0x419: "covariance",
-            0x402: "velocity", 0x403: "velocity", 0x404: "velocity", 0x405: "velocity", 0x406: "velocity", 0x407: "velocity", 0x408: "velocity", 0x440: "distance",
-            0x601: "accumulator", 0x651: "accumulator", 0x710: "accumulator", 0x501: "accumulator", 0x511: "accumulator",
-            0x191: "inverters", 0x192: "inverters", 0x193: "inverters", 0x194: "inverters",
-            0x291: "inverters", 0x292: "inverters", 0x293: "inverters", 0x294: "inverters",
-            0x391: "inverters", 0x392: "inverters", 0x393: "inverters", 0x394: "inverters",
-            0x711: "inverters", 0x712: "inverters", 0x713: "inverters", 0x714: "inverters",
-            0x211: "inverters", 0x212: "inverters", 0x213: "inverters", 0x214: "inverters",
-            0x185: "imu", 0x426: "imu", 0x285: "imu", 0x385: "imu", 0x429: "imu",
-            0x188: "imu2", 0x288: "imu2", 0x488: "imu2",
-            0x021: "xsens", 0x031: "xsens", 0x032: "xsens", 0x033: "xsens", 0x034: "xsens", 0x041: "xsens", 0x071: "xsens", 0x072: "xsens", 0x076: "xsens"
-        }
-
-        self.dbc_supported_can_id = set(msg.frame_id for msg in cantools.database.load_file(DBC_FILE).messages)
-
-        # load dbc file
-        try:
-            self.db = cantools.database.load_file(DBC_FILE)
-            print(f"Loaded DBC file: {DBC_FILE}")
-            print(f"Messages count: {len(self.db.messages)}")
-        except Exception as e:
-            print(f"Error loading DBC file: {e}")
         
         print("Remote CAN Server initialized")
 
     def check_vehicle_connection(self):
-        """检查车辆连接状态"""
+        # check vehicle connection status
         if not vehicle_clients:
             self.vehicle_connected = False
             return False
         
-        # 检查是否有最近的数据更新
+        # check if there is recent data update
         if self.last_data_time is not None:
             time_since_update = time.time() - self.last_data_time
             if time_since_update > self.connection_timeout:
@@ -195,12 +75,12 @@ class RemoteCANServer:
                 self.vehicle_connected = True
                 return True
         else:
-            # 有客户端但还没有数据，暂时认为是连接的
+            # client connected but no data received yet, consider it connected for now
             self.vehicle_connected = bool(vehicle_clients)
             return self.vehicle_connected
 
     async def handle_vehicle_client(self, websocket):
-        """处理来自车辆的连接"""
+        # handle connection from vehicle
         client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         print(f"Vehicle client connected: {client_id}")
         
@@ -217,57 +97,59 @@ class RemoteCANServer:
                     data = json.loads(message)
                     
                     if data['type'] == 'can_message':
-                        # 处理单条CAN消息（向后兼容）
+                        # handle single CAN message (backward compatibility)
                         can_id = data['can_id']
                         can_data = bytes(data['data'])
                         bus_id = data.get('bus_id', 0)
                         
-                        # 创建模拟CAN消息对象
+                        # create mock CAN message
                         mock_message = self.create_mock_can_message(can_id, can_data)
-                        self.process_can_message(mock_message)
+                        # self.process_can_message(mock_message)
+                        self.decoder.decode_can_message(mock_message)
                         self.message_count += 1
                         vehicle_clients[client_id]['message_count'] += 1
                         
-                        # 更新最后数据接收时间
+                        # update last data reception time
                         self.last_data_time = time.time()
                         self.vehicle_connected = True
                     
                     elif data['type'] == 'can_batch':
-                        # 处理批量CAN消息
+                        # handle batched CAN messages
                         messages = data.get('messages', [])
                         for msg in messages:
                             can_id = msg['can_id']
                             can_data = bytes(msg['data'])
                             bus_id = msg.get('bus_id', 0)
                             
-                            # 创建模拟CAN消息对象
+                            # create mock CAN message
                             mock_message = self.create_mock_can_message(can_id, can_data)
-                            self.process_can_message(mock_message)
+                            # self.process_can_message(mock_message)
+                            self.decoder.decode_can_message(mock_message)
                             self.message_count += 1
                             vehicle_clients[client_id]['message_count'] += 1
                         
-                        # 更新最后数据接收时间
+                        # update last data reception time
                         self.last_data_time = time.time()
                         self.vehicle_connected = True
                         
                     elif data['type'] == 'heartbeat':
-                        # 更新心跳时间
+                        # update heartbeat 
                         vehicle_clients[client_id]['last_heartbeat'] = time.time()
                         vehicle_clients[client_id]['mode'] = data.get('mode', 'realtime')
                         vehicle_clients[client_id]['csv_file'] = data.get('csv_file')
                         
-                        # 打印统计信息
+                        # print dropped messages info
                         if 'dropped_messages' in data and data['dropped_messages'] > 0:
                             print(f"Client {client_id}: Dropped {data['dropped_messages']} messages, Queue: {data.get('queue_size', 0)}")
                     
                     elif data['type'] == 'csv_list':
-                        # 接收CSV文件列表
+                        # receive CSV file list
                         files_count = data.get('count', 0)
                         print(f"[DEBUG] Received CSV file list: {files_count} files")
                         print(f"[DEBUG] Files: {[f.get('filename', 'unknown') for f in data.get('files', [])[:5]]}")
                         vehicle_clients[client_id]['csv_files'] = data.get('files', [])
                         
-                        # 广播到所有web客户端
+                        # broadcast to all web clients
                         print(f"[DEBUG] Broadcasting to {len(web_connections)} web clients")
                         await self.broadcast_to_web({
                             'type': 'csv_files',
@@ -277,7 +159,7 @@ class RemoteCANServer:
                         print("[DEBUG] Broadcast completed")
                     
                     elif data['type'] == 'mode_changed':
-                        # 模式切换确认
+                        # mode change notification
                         print(f"Mode changed to: {data.get('mode')} for {client_id}")
                         vehicle_clients[client_id]['mode'] = data.get('mode')
                         
@@ -289,7 +171,7 @@ class RemoteCANServer:
                         })
                     
                     elif data['type'] == 'csv_status':
-                        # CSV回放状态更新
+                        # CSV playback status update
                         print(f"CSV status: {data.get('status')}")
                         await self.broadcast_to_web({
                             'type': 'csv_status',
@@ -298,7 +180,7 @@ class RemoteCANServer:
                         })
                     
                     elif data['type'] == 'csv_progress':
-                        # CSV回放進度更新
+                        # CSV playback progress update
                         await self.broadcast_to_web({
                             'type': 'csv_progress',
                             'percentage': data.get('percentage', 0),
@@ -309,7 +191,7 @@ class RemoteCANServer:
                         })
                     
                     elif data['type'] == 'error':
-                        # 错误消息
+                        # error messages from client
                         print(f"Error from client: {data.get('message')}")
                         await self.broadcast_to_web({
                             'type': 'error',
@@ -328,7 +210,7 @@ class RemoteCANServer:
                 del vehicle_clients[client_id]
 
     def create_mock_can_message(self, can_id, data):
-        """创建模拟的CAN消息对象"""
+        # create mock CAN message object for decoder
         class MockCanMessage:
             def __init__(self, arbitration_id, data):
                 self.arbitration_id = arbitration_id
@@ -337,7 +219,7 @@ class RemoteCANServer:
         return MockCanMessage(can_id, data)
 
     async def broadcast_to_web(self, data):
-        """广播消息到所有Web客户端"""
+        # broadcast data to all web clients
         if not web_connections:
             return
         
@@ -353,18 +235,18 @@ class RemoteCANServer:
                 web_connections.remove(ws)
     
     async def broadcaster_loop(self):
-        """定期广播数据到网页客户端"""
+        # broadcast data to web clients periodically
         while self.running:
             if web_connections:
                 await self.broadcast_data()
             await asyncio.sleep(0.05)  # 20 FPS
 
     async def broadcast_data(self):
-        """广播数据到所有网页客户端"""
+        # broadcast data to all web clients
         if not web_connections:
             return
         
-        # 检查连接状态
+        # check vehicle connection status
         self.check_vehicle_connection()
             
         broadcast_data = {
@@ -377,7 +259,6 @@ class RemoteCANServer:
             'vcu': self.data_store['vcu'],
             'imu': self.data_store['imu'],
             'imu2': self.data_store['imu2'],
-            'xsens': self.data_store['xsens'],
             'message_count': self.message_count,
             'update_time': datetime.now().isoformat(),
             'vehicle_clients': len(vehicle_clients),
@@ -386,7 +267,7 @@ class RemoteCANServer:
             'error': self.data_store['error']
         }
         
-        # 发送到所有网页客户端
+        # send to all web clients
         disconnected = []
         for websocket in web_connections:
             try:
@@ -394,558 +275,10 @@ class RemoteCANServer:
             except:
                 disconnected.append(websocket)
         
-        # 移除断开的连接
+        # remove disconnected websockets
         for ws in disconnected:
             if ws in web_connections:
                 web_connections.remove(ws)
-
-    # 从这里开始，复制所有的decode函数
-    def process_can_message(self, msg):
-        """处理CAN消息 - 与原来的代码相同"""
-        can_id = msg.arbitration_id
-        data = msg.data
-        
-        subsystem = self.subsystem_map.get(can_id)
-
-        if can_id in self.dbc_supported_can_id and subsystem != "accumulator":
-            message = self.db.get_message_by_frame_id(can_id)
-            if len(data) < message.length:
-                return
-            try:
-                decoded = message.decode(data)
-            except Exception as e:
-                print(f"DBC decoding error for CAN ID 0x{can_id:03X}: {e}")
-                return
-
-        try:
-            if can_id == 0x81:
-                self.decode_error(data)
-            # Timestamp 解码
-            elif can_id == 0x100:
-                self.decode_timestamp(decoded)
-            # VCU 解码
-            elif can_id == 0x181:
-                self.decode_vcu_cockpit(decoded)
-            elif can_id == 0x381:
-                self.decode_vcu_suspension(decoded)
-            # GPS 解码
-            elif can_id == 0x400:
-                self.decode_gps_basic(decoded)
-            elif can_id == 0x401:
-                self.decode_gps_extended(decoded)
-            elif 0x410 <= can_id <= 0x418: # not in dbc
-                self.decode_position_covariance(data, can_id - 0x410)
-            elif can_id == 0x419: # not in dbc
-                self.decode_position_covariance_type(data) 
-                
-            # 速度资料解码
-            elif can_id == 0x402:
-                self.decode_velocity_x(decoded)
-            elif can_id == 0x403:
-                self.decode_velocity_y(decoded)
-            elif can_id == 0x404:
-                self.decode_velocity_z(decoded)
-            elif can_id == 0x405:
-                self.decode_angular_x(decoded)
-            elif can_id == 0x406:
-                self.decode_angular_y(decoded)
-            elif can_id == 0x407:
-                self.decode_angular_z(decoded)
-            elif can_id == 0x408:
-                self.decode_velocity_magnitude(decoded)
-            elif can_id == 0x440: # not in dbc
-                self.decode_distance(data)
-            
-            # Accumulator 解码
-            elif can_id == 0x601: # not in dbc
-                self.decode_cell_voltage(data)
-            elif can_id == 0x651: # not in dbc
-                self.decode_accumulator_temperature(data)
-            elif can_id == 0x710: # different type of operation, I'm not sure of the correctness
-                self.decode_accumulator_heartbeat(data)
-            elif can_id == 0x501: # not in dbc
-                self.decode_accumulator_status(data)
-            elif can_id == 0x511: # not in dbc
-                self.decode_accumulator_state(data)
-            
-            # Inverter 解码
-            elif 0x191 <= can_id <= 0x194:
-                inv_num = can_id - 0x190
-                self.decode_inverter_status(data, decoded, inv_num)
-            elif 0x291 <= can_id <= 0x294:
-                inv_num = can_id - 0x290
-                self.decode_inverter_state(decoded, inv_num)
-            elif 0x391 <= can_id <= 0x394:
-                inv_num = can_id - 0x390
-                self.decode_inverter_temperature(decoded, inv_num)
-            elif 0x711 <= can_id <= 0x714: # not sure
-                inv_num = can_id - 0x710
-                self.decode_inverter_heartbeat(data, inv_num)
-            elif 0x210 <= can_id <= 0x214: # not sure
-                inv_num = can_id - 0x210
-                self.decode_inverter_control(data, inv_num)
-            
-            # IMU 解码
-            elif can_id == 0x185: # not in dbc
-                self.decode_imu_accel_km6(data)
-            elif can_id == 0x426:
-                self.decode_imu_accel_km308(decoded)
-            elif can_id == 0x285: # not in dbc
-                self.decode_imu_gyro(data)
-            elif can_id == 0x385: # not in dbc
-                self.decode_imu_euler(data)
-            elif can_id == 0x429:
-                self.decode_imu_mag(decoded)
-            
-            # IMU2 解码
-            elif can_id == 0x188:
-                self.decode_imu2_accel(decoded)
-            elif can_id == 0x288:
-                self.decode_imu2_gyro(decoded)
-            elif can_id == 0x488:
-                self.decode_imu2_quaternion(decoded)
-            
-            # Xsens IMU 解码 all not in dbc
-            elif can_id == 0x021:
-                self.decode_xsens_quaternion(data)
-            elif can_id == 0x031:
-                self.decode_xsens_delta_v(data)
-            elif can_id == 0x032:
-                self.decode_xsens_rate_of_turn(data)
-            elif can_id == 0x033:
-                self.decode_xsens_delta_q(data)
-            elif can_id == 0x034:
-                self.decode_xsens_acceleration(data)
-            elif can_id == 0x041:
-                self.decode_xsens_magnetic_field(data)
-            elif can_id == 0x071:
-                self.decode_xsens_latlon(data)
-            elif can_id == 0x072:
-                self.decode_xsens_altitude(data)
-            elif can_id == 0x076:
-                self.decode_xsens_velocity(data)
-
-            # update last_update time for all messages
-            subsystem = self.subsystem_map.get(can_id)
-            if subsystem is None:
-                return
-            if subsystem != 'inverters':
-                self.data_store[subsystem]['last_update'] = time.time()
-            else:
-                inv_num = can_id & 0xF    
-                self.data_store['inverters'][inv_num]['last_update'] = time.time()
-        
-        except Exception as e:
-            print(f"Failed to decode CAN message ID 0x{can_id:03X}: {e}")
-
-    # decode functions
-    def decode_error(self, data):
-        # check if the data is valid
-        flag = struct.unpack('<B', data[2:3])[0]
-        if flag < 0x30: return
-
-        # get error status and code
-        status = struct.unpack('<H', data[0:2])[0]
-        error_code = struct.unpack('<I', data[3:7])[0]
-
-        # update error status and active errors list
-        if status == 0xff10:
-            # error 
-            self.data_store['error']['status'] = 1
-            self.data_store['error']['active_errors'].append(error_code)
-        elif status == 0x0: 
-            # no error
-            self.data_store['error']['status'] = 0
-            self.data_store['error']['active_errors'].clear()
-        else:
-            print(f"Unknown error status: {status}")
-
-
-    def decode_timestamp(self, decoded):
-        ms_since_midnight = decoded.get('MillisecondsSinceMidnight')
-        days_since_1984 = decoded.get('DaysSince1984')
-            
-        base_timestamp = 441763200
-        total_seconds = base_timestamp + (days_since_1984 * 86400) + (ms_since_midnight / 1000.0)
-        decoded_time = datetime.fromtimestamp(total_seconds)
-        
-        self.data_store['timestamp']['time'] = decoded_time
-
-    def decode_vcu_cockpit(self, decoded):
-        self.data_store['vcu']['steer'] = decoded.get('Steer') * 10000 # dbc scaling weird?
-        self.data_store['vcu']['accel'] = decoded.get('Accel')
-        self.data_store['vcu']['apps1'] = decoded.get('APPS1')
-        self.data_store['vcu']['apps2'] = decoded.get('APPS2')
-        self.data_store['vcu']['brake'] = decoded.get('Brake')
-        self.data_store['vcu']['bse1'] = decoded.get('BSE1')
-        self.data_store['vcu']['bse2'] = decoded.get('BSE2')
-
-    def decode_vcu_suspension(self, decoded):                    
-        self.data_store['vcu']['suspF'] = decoded.get('SUSP_F') * 0.001 + 0.3 # dbc scaling?
-        self.data_store['vcu']['suspR'] = decoded.get('SUSP_R') * 0.001 + 0.3 # dbc scaling?
-
-    def decode_gps_basic(self, decoded):
-        self.data_store['gps']['lat'] = decoded.get('Latitude') / 1e7
-        self.data_store['gps']['lon'] = decoded.get('Logitude') / 1e7 # typo in dbc?
-
-    def decode_gps_extended(self, decoded):
-        self.data_store['gps']['alt'] = decoded.get('Altitude')
-        self.data_store['gps']['status'] = decoded.get('Status')
-
-    def decode_position_covariance(self, data, index):
-        if len(data) >= 8 and 0 <= index < 9:
-            covariance_value = struct.unpack('<d', data[0:8])[0]
-            self.position_covariance[index] = covariance_value
-
-    def decode_position_covariance_type(self, data):
-        if len(data) >= 1:
-            self.position_covariance_type = struct.unpack('<B', data[0:1])[0]
-            
-            covariance_types = {
-                0: "UNKNOWN",
-                1: "APPROXIMATED", 
-                2: "DIAGONAL_KNOWN",
-                3: "KNOWN"
-            }
-            type_name = covariance_types.get(self.position_covariance_type, "UNKNOWN")
-            
-            self.data_store['covariance']['type'] = self.position_covariance_type
-            self.data_store['covariance']['type_name'] = type_name
-
-    def decode_velocity_x(self, decoded):
-        self.data_store['velocity']['linear_x'] = decoded.get('Vx') / 1000.0
-
-    def decode_velocity_y(self, decoded):
-        self.data_store['velocity']['linear_y'] = decoded.get('Vy') / 1000.0
-
-    def decode_velocity_z(self, decoded):
-        self.data_store['velocity']['linear_z'] = decoded.get('Vz') / 1000.0
-
-    def decode_angular_x(self, decoded):
-        self.data_store['velocity']['angular_x'] = decoded.get('Gx') / 1000.0
-
-    def decode_angular_y(self, decoded):
-        self.data_store['velocity']['angular_y'] = decoded.get('Gy') / 1000.0
-
-    def decode_angular_z(self, decoded):
-        self.data_store['velocity']['angular_z'] = decoded.get('Gz') / 1000.0
-
-    def decode_velocity_magnitude(self, decoded):
-        self.data_store['velocity']['magnitude'] = decoded.get('Velocity') / 1000.0
-        self.data_store['velocity']['speed_kmh'] = decoded.get('Velocity') / 1000.0 * 3.6
-
-    def decode_distance(self, data):
-        if len(data) >= 4:
-            distance_mm = struct.unpack('<I', data[0:4])[0]
-            distance_km = distance_mm / 1000000.0
-            
-            self.data_store['distance']['trip_distance_km'] = distance_km
-
-    def decode_cell_voltage(self, data):
-        if len(data) >= 8:
-            index = data[0]
-            
-            if index % 7 != 0 or index > 98:
-                return
-            
-            voltages = []
-            for i in range(1, min(8, len(data))):
-                voltage = data[i] * 0.02
-                voltages.append(voltage)
-            
-            for i, voltage in enumerate(voltages):
-                array_index = index + i
-                if array_index < 105:
-                    self.data_store['accumulator']['cell_voltages'][array_index] = voltage
-            
-    def decode_accumulator_temperature(self, data):
-        if len(data) >= 8:
-            index = data[0]
-            
-            if index % 7 != 0 or index > 217:
-                return
-            
-            temperatures = []
-            for i in range(1, min(8, len(data))):
-                temp = data[i] - 32  
-                temperatures.append(temp)
-            
-            for i, temp in enumerate(temperatures):
-                array_index = index + i
-                if array_index < 224: 
-                    self.data_store['accumulator']['cell_temperatures'][array_index] = temp
-
-    def decode_accumulator_heartbeat(self, data):
-        if len(data) >= 1:
-            heartbeat = data[0] == 0x7F
-            
-            self.data_store['accumulator']['heartbeat'] = heartbeat
-
-    def decode_accumulator_status(self, data):
-        if len(data) >= 7:
-            status = data[0]
-            temp_raw = struct.unpack('<h', data[1:3])[0]
-            voltage_raw = struct.unpack('<I', data[3:7])[0] if len(data) >= 7 else 0
-            
-            temperature = temp_raw * 0.125
-            voltage = voltage_raw / 1024.0
-            
-            self.data_store['accumulator']['status'] = status
-            self.data_store['accumulator']['temperature'] = temperature
-            self.data_store['accumulator']['voltage'] = voltage
-
-    def decode_accumulator_state(self, data):
-        if len(data) >= 5:
-            soc = data[0]
-            current_raw = struct.unpack('<h', data[1:3])[0]
-            capacity_raw = struct.unpack('<h', data[3:5])[0] if len(data) >= 5 else 0
-            
-            current = current_raw * 0.01
-            capacity = capacity_raw * 0.01
-            
-            self.data_store['accumulator']['soc'] = soc
-            self.data_store['accumulator']['current'] = current
-            self.data_store['accumulator']['capacity'] = capacity
-
-    def decode_inverter_status(self, data, decoded, inv_num):
-        # status doesn't match with any dbc signal
-        status_word1 = data[0]
-        status_word2 = data[1]
-
-        feedback_torque_raw = decoded.get('TorqueFeedback')
-        speed_raw = decoded.get('Speed')
-
-        feedback_torque = feedback_torque_raw / 100.0 * 20 * 4 # scaling?
-        speed = speed_raw
-
-        if inv_num == (0x213-0x210):
-            feedback_torque *= -1
-        
-        self.data_store['inverters'][inv_num]['status'] = (status_word1, status_word2) 
-        self.data_store['inverters'][inv_num]['torque'] = feedback_torque
-        self.data_store['inverters'][inv_num]['speed'] = speed
-
-    def decode_inverter_state(self, decoded, inv_num):
-        self.data_store['inverters'][inv_num]['dc_voltage'] = decoded.get('DCvolt')
-        self.data_store['inverters'][inv_num]['dc_current'] = decoded.get('DCcurrent')
-
-    def decode_inverter_temperature(self, decoded, inv_num):
-        self.data_store['inverters'][inv_num]['mos_temp'] = decoded.get('InvMOStemp')
-        self.data_store['inverters'][inv_num]['mcu_temp'] = decoded.get('MCUtemp')
-        self.data_store['inverters'][inv_num]['motor_temp'] = decoded.get('MOTORtemp')
-
-    def decode_inverter_heartbeat(self, data, inv_num):
-        if len(data) >= 1:
-            heartbeat = data[0] == 0x05
-            
-            if inv_num in self.data_store['inverters']:
-                self.data_store['inverters'][inv_num]['heartbeat'] = heartbeat
-
-    def decode_inverter_control(self, data, inv_num):
-        if len(data) >= 4:
-            control_word = struct.unpack('<H', data[0:2])[0]
-            target_torque_raw = struct.unpack('<h', data[2:4])[0]
-            target_torque = target_torque_raw / 1000.0 * 20
-            if inv_num == (0x213-0x210):
-                target_torque *= -1
-            if inv_num in self.data_store['inverters']:
-                self.data_store['inverters'][inv_num]['control_word'] = control_word
-                self.data_store['inverters'][inv_num]['target_torque'] = target_torque
-
-    def decode_imu_accel_km6(self, data):
-        if len(data) >= 6:
-            x_raw = struct.unpack('<h', data[0:2])[0]
-            y_raw = struct.unpack('<h', data[2:4])[0]
-            z_raw = struct.unpack('<h', data[4:6])[0]
-            
-            x = x_raw * 0.001
-            y = y_raw * 0.001
-            z = z_raw * 0.001
-            
-            self.data_store['imu']['accel_km6']['x'] = x
-            self.data_store['imu']['accel_km6']['y'] = y
-            self.data_store['imu']['accel_km6']['z'] = z
-
-    def decode_imu_accel_km308(self, decoded):
-        self.data_store['imu']['accel_km308']['x'] = decoded.get('a_x')
-        self.data_store['imu']['accel_km308']['y'] = decoded.get('a_y')
-        self.data_store['imu']['accel_km308']['z'] = decoded.get('a_z')
-
-    def decode_imu_gyro(self, data):
-        if len(data) >= 6:
-            x_raw = struct.unpack('<h', data[0:2])[0]
-            y_raw = struct.unpack('<h', data[2:4])[0]
-            z_raw = struct.unpack('<h', data[4:6])[0]
-            
-            x = x_raw * 0.1
-            y = y_raw * 0.1
-            z = z_raw * 0.1
-            
-            self.data_store['imu']['gyro']['x'] = x
-            self.data_store['imu']['gyro']['y'] = y
-            self.data_store['imu']['gyro']['z'] = z
-
-    def decode_imu_euler(self, data):
-        if len(data) >= 6:
-            roll_raw = struct.unpack('<h', data[0:2])[0]
-            pitch_raw = struct.unpack('<h', data[2:4])[0]
-            yaw_raw = struct.unpack('<h', data[4:6])[0]
-            
-            roll = roll_raw * 0.01
-            pitch = pitch_raw * 0.01
-            yaw = yaw_raw * 0.01
-            
-            self.data_store['imu']['euler']['roll'] = roll
-            self.data_store['imu']['euler']['pitch'] = pitch
-            self.data_store['imu']['euler']['yaw'] = yaw
-
-    def decode_imu_mag(self, decoded):
-        self.data_store['imu']['mag']['x'] = decoded.get('m_x') * 0.1
-        self.data_store['imu']['mag']['y'] = decoded.get('m_y') * 0.1
-        self.data_store['imu']['mag']['z'] = decoded.get('m_z') * 0.1
-
-    def decode_imu2_accel(self, decoded):
-        self.data_store['imu2']['accel']['x'] = decoded.get('a_x_1')
-        self.data_store['imu2']['accel']['y'] = decoded.get('a_y_1')
-        self.data_store['imu2']['accel']['z'] = decoded.get('a_z_1')
-
-    def decode_imu2_gyro(self, decoded):
-        self.data_store['imu2']['gyro']['x'] = decoded.get('g_x_1')
-        self.data_store['imu2']['gyro']['y'] = decoded.get('g_y_1')
-        self.data_store['imu2']['gyro']['z'] = decoded.get('g_z_1')
-
-    def decode_imu2_quaternion(self, decoded):
-        self.data_store['imu2']['quaternion']['w'] = decoded.get('q_w')
-        self.data_store['imu2']['quaternion']['x'] = decoded.get('q_x')
-        self.data_store['imu2']['quaternion']['y'] = decoded.get('q_y')
-        self.data_store['imu2']['quaternion']['z'] = decoded.get('q_z')
-            
-    def decode_xsens_quaternion(self, data):
-        if len(data) >= 8:
-            q0_raw = struct.unpack('>h', data[0:2])[0]
-            q1_raw = struct.unpack('>h', data[2:4])[0]
-            q2_raw = struct.unpack('>h', data[4:6])[0]
-            q3_raw = struct.unpack('>h', data[6:8])[0]
-            
-            scale = 3.05176e-05
-            q0 = q0_raw * scale
-            q1 = q1_raw * scale
-            q2 = q2_raw * scale
-            q3 = q3_raw * scale
-            
-            self.data_store['xsens']['quaternion']['q0'] = q0
-            self.data_store['xsens']['quaternion']['q1'] = q1
-            self.data_store['xsens']['quaternion']['q2'] = q2
-            self.data_store['xsens']['quaternion']['q3'] = q3
-
-    def decode_xsens_delta_v(self, data):
-        if len(data) >= 7:
-            x_raw = struct.unpack('>h', data[0:2])[0]
-            y_raw = struct.unpack('>h', data[2:4])[0]
-            z_raw = struct.unpack('>h', data[4:6])[0]
-            exponent = data[6]
-            
-            x = x_raw * (-7.62939e-06)
-            y = y_raw * (-7.62939e-06)
-            z = z_raw * 7.62939e-06
-            
-            self.data_store['xsens']['delta_v']['x'] = x
-            self.data_store['xsens']['delta_v']['y'] = y
-            self.data_store['xsens']['delta_v']['z'] = z
-            self.data_store['xsens']['delta_v']['exponent'] = exponent
-
-    def decode_xsens_rate_of_turn(self, data):
-        if len(data) >= 6:
-            gyr_x_raw = struct.unpack('>h', data[0:2])[0]
-            gyr_y_raw = struct.unpack('>h', data[2:4])[0]
-            gyr_z_raw = struct.unpack('>h', data[4:6])[0]
-            
-            gyr_x = gyr_x_raw * (-0.00195313)
-            gyr_y = gyr_y_raw * (-0.00195313)
-            gyr_z = gyr_z_raw * 0.00195313
-            
-            self.data_store['xsens']['rate_of_turn']['gyr_x'] = gyr_x
-            self.data_store['xsens']['rate_of_turn']['gyr_y'] = gyr_y
-            self.data_store['xsens']['rate_of_turn']['gyr_z'] = gyr_z
-
-    def decode_xsens_delta_q(self, data):
-        if len(data) >= 8:
-            dq0_raw = struct.unpack('>h', data[0:2])[0]
-            dq1_raw = struct.unpack('>h', data[2:4])[0]
-            dq2_raw = struct.unpack('>h', data[4:6])[0]
-            dq3_raw = struct.unpack('>h', data[6:8])[0]
-            
-            scale = 3.05185e-05
-            dq0 = dq0_raw * scale
-            dq1 = dq1_raw * scale
-            dq2 = dq2_raw * scale
-            dq3 = dq3_raw * scale
-            
-            self.data_store['xsens']['delta_q']['dq0'] = dq0
-            self.data_store['xsens']['delta_q']['dq1'] = dq1
-            self.data_store['xsens']['delta_q']['dq2'] = dq2
-            self.data_store['xsens']['delta_q']['dq3'] = dq3
-
-    def decode_xsens_acceleration(self, data):
-        if len(data) >= 6:
-            acc_x_raw = struct.unpack('>h', data[0:2])[0]
-            acc_y_raw = struct.unpack('>h', data[2:4])[0]
-            acc_z_raw = struct.unpack('>h', data[4:6])[0]
-            
-            acc_x = acc_x_raw * (-0.00390625)
-            acc_y = acc_y_raw * (-0.00390625)
-            acc_z = acc_z_raw * 0.00390625
-            
-            self.data_store['xsens']['acceleration']['acc_x'] = acc_x
-            self.data_store['xsens']['acceleration']['acc_y'] = acc_y
-            self.data_store['xsens']['acceleration']['acc_z'] = acc_z
-
-    def decode_xsens_magnetic_field(self, data):
-        if len(data) >= 6:
-            mag_x_raw = struct.unpack('>h', data[0:2])[0]
-            mag_y_raw = struct.unpack('>h', data[2:4])[0]
-            mag_z_raw = struct.unpack('>h', data[4:6])[0]
-            
-            mag_x = mag_x_raw * (-0.000976563)
-            mag_y = mag_y_raw * (-0.000976563)
-            mag_z = mag_z_raw * 0.000976563
-            
-            self.data_store['xsens']['magnetic_field']['mag_x'] = mag_x
-            self.data_store['xsens']['magnetic_field']['mag_y'] = mag_y
-            self.data_store['xsens']['magnetic_field']['mag_z'] = mag_z
-
-    def decode_xsens_latlon(self, data):
-        if len(data) >= 8:
-            lat_raw = struct.unpack('>i', data[0:4])[0]
-            lon_raw = struct.unpack('>i', data[4:8])[0]
-            
-            lat = lat_raw * 5.96046e-08
-            lon = lon_raw * 1.19209e-07
-            
-            self.data_store['xsens']['gps']['lat'] = lat
-            self.data_store['xsens']['gps']['lon'] = lon
-
-    def decode_xsens_altitude(self, data):
-        if len(data) >= 4:
-            alt_raw = struct.unpack('>i', data[0:4])[0]
-            alt = alt_raw * 3.05176e-05
-            
-            self.data_store['xsens']['gps']['alt'] = alt
-
-    def decode_xsens_velocity(self, data):
-        if len(data) >= 6:
-            vel_x_raw = struct.unpack('>h', data[0:2])[0]
-            vel_y_raw = struct.unpack('>h', data[2:4])[0]
-            vel_z_raw = struct.unpack('>h', data[4:6])[0]
-            
-            vel_x = vel_x_raw * (-0.015625)
-            vel_y = vel_y_raw * (-0.015625)
-            vel_z = vel_z_raw * 0.015625
-            
-            self.data_store['xsens']['velocity']['vel_x'] = vel_x
-            self.data_store['xsens']['velocity']['vel_y'] = vel_y
-            self.data_store['xsens']['velocity']['vel_z'] = vel_z
-
 
 # Global server instance
 can_server = None
@@ -957,23 +290,23 @@ async def main_navigation(request: Request):
 
 @app.get("/racing", response_class=HTMLResponse)
 async def racing_dashboard(request: Request):
-    return templates.TemplateResponse("enhanced_racing_dashboard.html", {"request": request})
+    return templates.TemplateResponse("racing_dashboard.html", {"request": request})
 
 @app.get("/AMS", response_class=HTMLResponse)
 async def ams_dashboard(request: Request):
-    return templates.TemplateResponse("battery_dashboard_update.html", {"request": request})
+    return templates.TemplateResponse("battery_dashboard.html", {"request": request})
 
 @app.get("/TQ", response_class=HTMLResponse)
 async def tq_dashboard(request: Request):
-    return templates.TemplateResponse("dashchart.html", {"request": request})
+    return templates.TemplateResponse("torque_dashboard.html", {"request": request})
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def chart_dashboard(request: Request):
-    return templates.TemplateResponse("chart_dashboard-v4.html", {"request": request})
+    return templates.TemplateResponse("dynamic_dashboard.html", {"request": request})
 
 @app.get("/IMU", response_class=HTMLResponse)
 async def imu_dashboard(request: Request):
-    return templates.TemplateResponse("imu_realtime_dashboard.html", {"request": request})
+    return templates.TemplateResponse("imu_dashboard.html", {"request": request})
 
 @app.get("/xsens", response_class=HTMLResponse)
 async def xsens_dashboard(request: Request):
@@ -1000,7 +333,6 @@ async def get_data():
             'vcu': can_server.data_store['vcu'],
             'imu': can_server.data_store['imu'],
             'imu2': can_server.data_store['imu2'],
-            'xsens': can_server.data_store['xsens'],
             'message_count': can_server.message_count,
             'update_time': datetime.now().isoformat(),
             'vehicle_clients': len(vehicle_clients)
@@ -1010,12 +342,12 @@ async def get_data():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """处理网页客户端的WebSocket连接"""
+    # handle WebSocket connection from web client
     await websocket.accept()
     web_connections.append(websocket)
     print('Web client connected')
     
-    # 连线时主动推送一次资料
+    # Push data once when connected
     if can_server:
         await can_server.broadcast_data()
     
@@ -1030,7 +362,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get('/api/status')
 async def get_status():
-    """获取服务器状态"""
+    # get server status
     return {
         'vehicle_clients': len(vehicle_clients),
         'web_clients': len(web_connections),
@@ -1050,14 +382,14 @@ async def get_status():
 
 @app.post('/api/csv/request_list')
 async def request_csv_list():
-    """请求车辆端发送CSV文件列表"""
+    # request CSV file list from vehicle client
     print(f"[DEBUG] CSV list requested. Vehicle clients: {len(vehicle_clients)}")
     
     if not vehicle_clients:
         print("[ERROR] No vehicle client connected")
         return {'error': 'No vehicle client connected'}
     
-    # 发送命令到第一个连接的车辆客户端
+    # send command to the first connected vehicle client
     client_id = list(vehicle_clients.keys())[0]
     websocket = vehicle_clients[client_id]['websocket']
     
@@ -1075,7 +407,7 @@ async def request_csv_list():
 
 @app.post('/api/csv/select')
 async def select_csv_file(request: Request):
-    """选择CSV文件进行回放"""
+    # select CSV file for playback
     data = await request.json()
     filename = data.get('filename')
     
@@ -1099,15 +431,15 @@ async def select_csv_file(request: Request):
 
 @app.post('/api/csv/switch_realtime')
 async def switch_to_realtime():
-    """切換回實時模式並清空buffer"""
+    # switch back to realtime mode and clear data buffer
     if not vehicle_clients:
         return {'error': 'No vehicle client connected'}
     
-    # 清空所有數據buffer
+    # clear data buffer
     if can_server:
         print("🧹 Clearing data buffer before switching to realtime mode...")
         
-        # 重置所有數據為None
+        # reset all data fields to None
         can_server.data_store['timestamp']['time'] = None
         can_server.data_store['timestamp']['last_update'] = None
         
@@ -1168,18 +500,6 @@ async def switch_to_realtime():
             'last_update': None
         }
         
-        can_server.data_store['xsens'] = {
-            'quaternion': {'q0': None, 'q1': None, 'q2': None, 'q3': None},
-            'delta_v': {'x': None, 'y': None, 'z': None, 'exponent': None},
-            'rate_of_turn': {'gyr_x': None, 'gyr_y': None, 'gyr_z': None},
-            'delta_q': {'dq0': None, 'dq1': None, 'dq2': None, 'dq3': None},
-            'acceleration': {'acc_x': None, 'acc_y': None, 'acc_z': None},
-            'magnetic_field': {'mag_x': None, 'mag_y': None, 'mag_z': None},
-            'gps': {'lat': None, 'lon': None, 'alt': None},
-            'velocity': {'vel_x': None, 'vel_y': None, 'vel_z': None},
-            'last_update': None
-        }
-        
         print("✅ Data buffer cleared")
     
     client_id = list(vehicle_clients.keys())[0]
@@ -1195,7 +515,7 @@ async def switch_to_realtime():
 
 @app.post('/api/csv/pause')
 async def toggle_csv_pause():
-    """暫停/恢復CSV回放"""
+    # toggle CSV playback pause/resume
     if not vehicle_clients:
         return {'error': 'No vehicle client connected'}
     
@@ -1212,7 +532,7 @@ async def toggle_csv_pause():
 
 @app.post('/api/csv/jump_percentage')
 async def jump_to_percentage(request: Request):
-    """跳到指定百分比位置"""
+    # jump to specified percentage position in CSV playback
     data = await request.json()
     percentage = data.get('percentage', 0)
     
@@ -1239,7 +559,7 @@ async def jump_to_percentage(request: Request):
 
 @app.post('/api/csv/jump_time')
 async def jump_time(request: Request):
-    """前進或後退指定秒數"""
+    # jump forward or backward by specified seconds in CSV playback
     data = await request.json()
     seconds = data.get('seconds', 0)
     
@@ -1266,7 +586,7 @@ async def jump_time(request: Request):
 
 @app.post('/api/csv/set_speed')
 async def set_playback_speed(request: Request):
-    """設定回放速度"""
+    # set playback speed
     data = await request.json()
     speed = data.get('speed', 1.0)
     
@@ -1292,21 +612,21 @@ async def set_playback_speed(request: Request):
         return {'error': str(e)}
 
 async def start_vehicle_data_server():
-    """启动车辆数据接收服务器"""
+    # start vehicle data server
     global can_server
     can_server = RemoteCANServer()
     
-    # 启动broadcaster循环
+    # start broadcaster loop
     broadcaster_task = asyncio.create_task(can_server.broadcaster_loop())
     
-    # 启动WebSocket服务器接收车辆数据
+    # start WebSocket server to receive vehicle data
     async with websockets.serve(can_server.handle_vehicle_client, "0.0.0.0", DATA_PORT):
         print(f"Vehicle data server listening on port {DATA_PORT}")
         await broadcaster_task
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动事件"""
+    # app startup
     asyncio.create_task(start_vehicle_data_server())
 
 if __name__ == '__main__':

@@ -4,4 +4,3 @@ websockets
 python-can 
 jinja2
 cantools
-packaging
