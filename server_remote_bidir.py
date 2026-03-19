@@ -211,12 +211,27 @@ class RemoteCANServer:
 
     def create_mock_can_message(self, can_id, data):
         # create mock CAN message object for decoder
-        class MockCanMessage:
-            def __init__(self, arbitration_id, data):
-                self.arbitration_id = arbitration_id
-                self.data = data
-        
         return MockCanMessage(can_id, data)
+    
+    def get_broadcast_data(self):
+        # prepare data for broadcasting to web clients
+        return {
+            'timestamp': self.data_store['timestamp']['time'].isoformat() if self.data_store['timestamp']['time'] else None,
+            'gps': self.data_store['gps'],
+            'velocity': self.data_store['velocity'],
+            'distance': self.data_store['distance'],
+            'accumulator': self.data_store['accumulator'],
+            'inverters': self.data_store['inverters'],
+            'vcu': self.data_store['vcu'],
+            'imu': self.data_store['imu'],
+            'imu2': self.data_store['imu2'],
+            'message_count': self.message_count,
+            'update_time': datetime.now().isoformat(),
+            'vehicle_clients': len(vehicle_clients),
+            'vehicle_connected': self.vehicle_connected,
+            'last_data_time': self.last_data_time,
+            'error': self.data_store['error']
+        }
 
     async def broadcast_to_web(self, data):
         # broadcast data to all web clients
@@ -249,23 +264,8 @@ class RemoteCANServer:
         # check vehicle connection status
         self.check_vehicle_connection()
             
-        broadcast_data = {
-            'timestamp': self.data_store['timestamp']['time'].isoformat() if self.data_store['timestamp']['time'] else None,
-            'gps': self.data_store['gps'],
-            'velocity': self.data_store['velocity'],
-            'distance': self.data_store['distance'],
-            'accumulator': self.data_store['accumulator'],
-            'inverters': self.data_store['inverters'],
-            'vcu': self.data_store['vcu'],
-            'imu': self.data_store['imu'],
-            'imu2': self.data_store['imu2'],
-            'message_count': self.message_count,
-            'update_time': datetime.now().isoformat(),
-            'vehicle_clients': len(vehicle_clients),
-            'vehicle_connected': self.vehicle_connected,
-            'last_data_time': self.last_data_time,
-            'error': self.data_store['error']
-        }
+        # prepare broadcast data
+        broadcast_data = self.get_broadcast_data()
         
         # send to all web clients
         disconnected = []
@@ -279,6 +279,29 @@ class RemoteCANServer:
         for ws in disconnected:
             if ws in web_connections:
                 web_connections.remove(ws)
+    
+    async def send_to_vehicle_client(self, message_dict, status_dict):
+        # send message to vehicle client
+        if not vehicle_clients:
+            print("❌ No vehicle client connected")
+            return {'error': 'No vehicle client connected'}
+        
+        client_id = list(vehicle_clients.keys())[0]
+        websocket = vehicle_clients[client_id]['websocket']
+        
+        try:
+            message = json.dumps(message_dict)
+            print(f"📤 Sending to client: {message}")
+            await websocket.send(message)
+            return status_dict
+        except Exception as e:
+            print(f"❌ Send error: {e}")
+            return {'error': str(e)}
+
+class MockCanMessage:
+    def __init__(self, arbitration_id, data):
+        self.arbitration_id = arbitration_id
+        self.data = data
 
 # Global server instance
 can_server = None
@@ -316,27 +339,10 @@ async def xsens_dashboard(request: Request):
 async def csv_control(request: Request):
     return templates.TemplateResponse("csv_control.html", {"request": request})
 
-@app.get("/csv_debug", response_class=HTMLResponse)
-async def csv_debug(request: Request):
-    return templates.TemplateResponse("csv_debug.html", {"request": request})
-
 @app.get('/api/data')
 async def get_data():
     if can_server:
-        return {
-            'timestamp': can_server.data_store['timestamp']['time'].isoformat() if can_server.data_store['timestamp']['time'] else None,
-            'gps': can_server.data_store['gps'],
-            'velocity': can_server.data_store['velocity'],
-            'distance': can_server.data_store['distance'],
-            'accumulator': can_server.data_store['accumulator'],
-            'inverters': can_server.data_store['inverters'],
-            'vcu': can_server.data_store['vcu'],
-            'imu': can_server.data_store['imu'],
-            'imu2': can_server.data_store['imu2'],
-            'message_count': can_server.message_count,
-            'update_time': datetime.now().isoformat(),
-            'vehicle_clients': len(vehicle_clients)
-        }
+        return can_server.get_broadcast_data()
     else:
         return {'error': 'CAN server not initialized'}
 
@@ -383,27 +389,17 @@ async def get_status():
 @app.post('/api/csv/request_list')
 async def request_csv_list():
     # request CSV file list from vehicle client
-    print(f"[DEBUG] CSV list requested. Vehicle clients: {len(vehicle_clients)}")
-    
     if not vehicle_clients:
-        print("[ERROR] No vehicle client connected")
+        print("❌ No vehicle client connected")
         return {'error': 'No vehicle client connected'}
     
-    # send command to the first connected vehicle client
+    print(f"📥 API received request CSV list. Vehicle clients: {len(vehicle_clients)}")
+    
     client_id = list(vehicle_clients.keys())[0]
-    websocket = vehicle_clients[client_id]['websocket']
+    message_dict = {'type': 'request_csv_list'}
+    status_dict = {'status': 'requested', 'client_id': client_id}
     
-    print(f"[DEBUG] Sending request_csv_list to client: {client_id}")
-    
-    try:
-        await websocket.send(json.dumps({
-            'type': 'request_csv_list'
-        }))
-        print("[DEBUG] Request sent successfully")
-        return {'status': 'requested', 'client_id': client_id}
-    except Exception as e:
-        print(f"[ERROR] Failed to send request: {e}")
-        return {'error': str(e)}
+    return await can_server.send_to_vehicle_client(message_dict, status_dict)
 
 @app.post('/api/csv/select')
 async def select_csv_file(request: Request):
@@ -414,20 +410,12 @@ async def select_csv_file(request: Request):
     if not filename:
         return {'error': 'No filename provided'}
     
-    if not vehicle_clients:
-        return {'error': 'No vehicle client connected'}
+    print(f"📁 API received select CSV: {filename}")
     
-    client_id = list(vehicle_clients.keys())[0]
-    websocket = vehicle_clients[client_id]['websocket']
-    
-    try:
-        await websocket.send(json.dumps({
-            'type': 'select_csv',
-            'filename': filename
-        }))
-        return {'status': 'selected', 'filename': filename}
-    except Exception as e:
-        return {'error': str(e)}
+    message_dict = {'type': 'select_csv', 'filename': filename}
+    status_dict = {'status': 'selected', 'filename': filename}
+
+    return await can_server.send_to_vehicle_client(message_dict, status_dict)
 
 @app.post('/api/csv/switch_realtime')
 async def switch_to_realtime():
@@ -441,33 +429,20 @@ async def switch_to_realtime():
         can_server.data_store = can_server.decoder.create_empty_data_store()
         print("✅ Data buffer cleared")
     
-    client_id = list(vehicle_clients.keys())[0]
-    websocket = vehicle_clients[client_id]['websocket']
-    
-    try:
-        await websocket.send(json.dumps({
-            'type': 'switch_realtime'
-        }))
-        return {'status': 'switched', 'buffer_cleared': True}
-    except Exception as e:
-        return {'error': str(e)}
+    message_dict = {'type': 'switch_realtime'}
+    status_dict = {'status': 'switched', 'buffer_cleared': True}
+
+    return await can_server.send_to_vehicle_client(message_dict, status_dict)
 
 @app.post('/api/csv/pause')
 async def toggle_csv_pause():
     # toggle CSV playback pause/resume
-    if not vehicle_clients:
-        return {'error': 'No vehicle client connected'}
+    print("⏸️ API received toggle pause")
     
-    client_id = list(vehicle_clients.keys())[0]
-    websocket = vehicle_clients[client_id]['websocket']
-    
-    try:
-        await websocket.send(json.dumps({
-            'type': 'csv_pause'
-        }))
-        return {'status': 'toggled'}
-    except Exception as e:
-        return {'error': str(e)}
+    message_dict = {'type': 'csv_pause'}
+    status_dict = {'status': 'toggled'}
+
+    return await can_server.send_to_vehicle_client(message_dict, status_dict)
 
 @app.post('/api/csv/jump_percentage')
 async def jump_to_percentage(request: Request):
@@ -476,25 +451,11 @@ async def jump_to_percentage(request: Request):
     percentage = data.get('percentage', 0)
     
     print(f"📍 API received jump_percentage: {percentage}%")
+
+    message_dict = {'type': 'csv_jump_percentage', 'percentage': percentage}
+    status_dict = {'status': 'jumped', 'percentage': percentage}
     
-    if not vehicle_clients:
-        print("❌ No vehicle client connected")
-        return {'error': 'No vehicle client connected'}
-    
-    client_id = list(vehicle_clients.keys())[0]
-    websocket = vehicle_clients[client_id]['websocket']
-    
-    try:
-        message = json.dumps({
-            'type': 'csv_jump_percentage',
-            'percentage': percentage
-        })
-        print(f"📤 Sending to client: {message}")
-        await websocket.send(message)
-        return {'status': 'jumped', 'percentage': percentage}
-    except Exception as e:
-        print(f"❌ Send error: {e}")
-        return {'error': str(e)}
+    return await can_server.send_to_vehicle_client(message_dict, status_dict)
 
 @app.post('/api/csv/jump_time')
 async def jump_time(request: Request):
@@ -502,27 +463,13 @@ async def jump_time(request: Request):
     data = await request.json()
     seconds = data.get('seconds', 0)
     
-    print(f"⏱️ API received jump_time: {seconds}s")
-    
-    if not vehicle_clients:
-        print("❌ No vehicle client connected")
-        return {'error': 'No vehicle client connected'}
-    
-    client_id = list(vehicle_clients.keys())[0]
-    websocket = vehicle_clients[client_id]['websocket']
-    
-    try:
-        message = json.dumps({
-            'type': 'csv_jump_time',
-            'seconds': seconds
-        })
-        print(f"📤 Sending to client: {message}")
-        await websocket.send(message)
-        return {'status': 'jumped', 'seconds': seconds}
-    except Exception as e:
-        print(f"❌ Send error: {e}")
-        return {'error': str(e)}
+    print(f"⏱️  API received jump_time: {seconds}s")
 
+    message_dict = {'type': 'csv_jump_time', 'seconds': seconds}
+    status_dict = {'status': 'jumped', 'seconds': seconds}
+
+    return await can_server.send_to_vehicle_client(message_dict, status_dict)
+    
 @app.post('/api/csv/set_speed')
 async def set_playback_speed(request: Request):
     # set playback speed
@@ -530,26 +477,12 @@ async def set_playback_speed(request: Request):
     speed = data.get('speed', 1.0)
     
     print(f"⚡ API received set_speed: {speed}x")
-    
-    if not vehicle_clients:
-        print("❌ No vehicle client connected")
-        return {'error': 'No vehicle client connected'}
-    
-    client_id = list(vehicle_clients.keys())[0]
-    websocket = vehicle_clients[client_id]['websocket']
-    
-    try:
-        message = json.dumps({
-            'type': 'csv_set_speed',
-            'speed': speed
-        })
-        print(f"📤 Sending to client: {message}")
-        await websocket.send(message)
-        return {'status': 'speed_set', 'speed': speed}
-    except Exception as e:
-        print(f"❌ Send error: {e}")
-        return {'error': str(e)}
 
+    message_dict = {'type': 'csv_set_speed', 'speed': speed}
+    status_dict = {'status': 'speed_set', 'speed': speed}
+
+    return await can_server.send_to_vehicle_client(message_dict, status_dict)
+    
 async def start_vehicle_data_server():
     # start vehicle data server
     global can_server

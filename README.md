@@ -119,6 +119,7 @@
     - Check firewall settings
     - Ensure SERVER_URL is configured correctly
     - Check server log
+    - Check if Tailscale is expired
 
 ### Data not updating
 
