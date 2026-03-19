@@ -1,8 +1,8 @@
 #!/bin/bash
 # NTURT CAN Server Remote - Startup Script
 
-# 切换到项目目录
+# change to project directory
 cd /home/pi/Desktop/GUI_SC-dev
 
-# 启动服务器
+# start server
 python3 server_remote_bidir.py

@@ -1,30 +1,30 @@
 #!/bin/bash
-# 安装 NTURT Server 服务的脚本
+# Script that installs the NTURT Server as a systemd service
 
-echo "正在安装 NTURT Server 服务..."
+echo "Installing NTURT Server service..."
 
-# 给启动脚本添加执行权限
+# Add execute permission to the startup script
 chmod +x /home/pi/Desktop/GUI_SC-dev/start_server.sh
 
-# 复制 service 文件到 systemd 目录
+# Copy the service file to systemd directory
 sudo cp /home/pi/Desktop/GUI_SC-dev/nturt-server.service /etc/systemd/system/
 
-# 重新加载 systemd
+# Reload systemd
 sudo systemctl daemon-reload
 
-# 启用服务（开机自启动）
+# Enable the service (start on boot)
 sudo systemctl enable nturt-server.service
 
-# 启动服务
+# Start the service
 sudo systemctl start nturt-server.service
 
 echo ""
-echo "安装完成！"
+echo "Installation complete!"
 echo ""
-echo "常用命令："
-echo "  查看状态: sudo systemctl status nturt-server"
-echo "  启动服务: sudo systemctl start nturt-server"
-echo "  停止服务: sudo systemctl stop nturt-server"
-echo "  重启服务: sudo systemctl restart nturt-server"
-echo "  查看日志: sudo journalctl -u nturt-server -f"
-echo "  禁用开机启动: sudo systemctl disable nturt-server"
+echo "Common used commands:"
+echo "  Check status: sudo systemctl status nturt-server"
+echo "  Start service: sudo systemctl start nturt-server"
+echo "  Stop service: sudo systemctl stop nturt-server"
+echo "  Restart service: sudo systemctl restart nturt-server"
+echo "  View logs: sudo journalctl -u nturt-server -f"
+echo "  Disable boot startup: sudo systemctl disable nturt-server"
