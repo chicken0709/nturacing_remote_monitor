@@ -6,6 +6,7 @@ This module contains all CAN message decoding functions.
 
 import time
 import struct
+import logging
 import cantools
 from datetime import datetime
 
@@ -72,6 +73,9 @@ MESSAGE_HANDLERS = {
     0x488: ("imu2", "decode_imu2_quaternion", "decoded"),
 }
 
+# suppress cantools warnings about overwriting messages when loading dbc
+logging.getLogger("cantools").setLevel(logging.ERROR)
+
 class CANDecoder:
     def __init__(self):
         # Data storage 
@@ -80,7 +84,7 @@ class CANDecoder:
         # load dbc file
         try:
             self.db = cantools.database.load_file(DBC_FILE)
-            self.dbc_supported_can_id = set(msg.frame_id for msg in cantools.database.load_file(DBC_FILE).messages)
+            self.dbc_supported_can_id = set(msg.frame_id for msg in self.db.messages)
             print(f"Loaded DBC file: {DBC_FILE}")
             print(f"Messages count: {len(self.db.messages)}")
         except Exception as e:

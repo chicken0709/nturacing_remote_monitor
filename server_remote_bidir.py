@@ -12,16 +12,16 @@ import uvicorn
 import websockets
 from datetime import datetime
 from typing import List, Dict
-from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from can_decoder import CANDecoder
 
 # Configuration
-WEB_PORT = 8888  # server hosting port
+WEB_PORT  = 8888  # server hosting port
 DATA_PORT = 8889  # port for client connections
 
 # FastAPI app setup
@@ -48,7 +48,7 @@ class RemoteCANServer:
         # Connection status
         self.vehicle_connected = False
         self.last_data_time = None
-        self.connection_timeout = 3.0  # diconnect if no data for 3 seconds
+        self.connection_timeout = 3.0  # treat as disconnected if no data for 3 seconds
         
         # Initialize CAN decoder
         self.decoder = CANDecoder()
