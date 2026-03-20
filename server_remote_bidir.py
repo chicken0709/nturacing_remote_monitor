@@ -55,6 +55,16 @@ class RemoteCANServer:
         self.data_store = self.decoder.data_store
 
         self.message_count = 0
+        self.message_handlers = {
+            'can_message': 'handle_single_can_message',
+            'can_batch': 'handle_batched_can_message',
+            'heartbeat': 'handle_heartbeat',
+            'csv_list': 'handle_csv_list',
+            'mode_changed': 'handle_mode_changed',
+            'csv_status': 'handle_csv_status',
+            'csv_progress': 'handle_csv_progress',
+            'error': 'handle_error'
+        }
         
         print("Remote CAN Server initialized")
 
@@ -89,23 +99,12 @@ class RemoteCANServer:
             'last_heartbeat': time.time(),
             'message_count': 0
         }
-        
-        message_handlers = {
-            'can_message': 'handle_single_can_message',
-            'can_batch': 'handle_batched_can_message',
-            'heartbeat': 'handle_heartbeat',
-            'csv_list': 'handle_csv_list',
-            'mode_changed': 'handle_mode_changed',
-            'csv_status': 'handle_csv_status',
-            'csv_progress': 'handle_csv_progress',
-            'error': 'handle_error'
-        }
 
         try:
             async for message in websocket:
                 try:
                     data = json.loads(message)
-                    handler_name = message_handlers.get(data['type'])
+                    handler_name = self.message_handlers.get(data['type'])
                     handler = getattr(self, handler_name)
                     
                     await handler(data, client_id)
@@ -417,7 +416,6 @@ async def select_csv_file(request: Request):
 @app.post('/api/csv/switch_realtime')
 async def switch_to_realtime():
     # switch back to realtime mode and clear data buffer
-    if not vehicle_clients: return {'error': 'No vehicle client connected'}
     if not can_server: return {'error': 'CAN server not initialized'}
     
     # clear data buffer
