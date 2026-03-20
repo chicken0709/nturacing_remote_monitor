@@ -15,12 +15,11 @@ DBC_FILE = "dbc/NTUR_EP6_260307.dbc"
 # CAN ID : (subsystem, handler_function_name, param_type)
 # param_type: "raw" (data), "decoded" (decoded), "both" (data + decoded)
 CAN_MESSAGE_CONFIG = { 
-    # error
-    0x81 : ("error", "decode_error", "raw"),
     # timestamp
     0x100: ("timestamp", "decode_timestamp", "decoded"),
     # vcu
     0x181: ("vcu", "decode_vcu_cockpit", "decoded"),
+    0x281: ("vcu", "decode_vcu_status", "raw"),
     0x381: ("vcu", "decode_vcu_suspension", "decoded"),
     # gps
     0x400: ("gps", "decode_gps_basic", "decoded"),
@@ -135,6 +134,7 @@ class CANDecoder:
                 'steer': None, 'accel': None, 'apps1': None,    
                 'apps2': None, 'brake': None, 'bse1': None, 'bse2': None,
                 'suspF': None, 'suspR': None,
+                'status': None,
                 'last_update': None},
             'imu': {
                 'accel_km6': {'x': None, 'y': None, 'z': None},
@@ -153,11 +153,6 @@ class CANDecoder:
             'distance': {
                 'trip_distance_km': None,
                 'last_update': None
-            },
-            'error' : {
-                'status': None,
-                'active_errors': [],
-                'last_update': None
             }
         }
 
@@ -171,7 +166,7 @@ class CANDecoder:
         subsystem, handler_name, param_type = CAN_MESSAGE_CONFIG[can_id]
         handler = getattr(self, handler_name)
 
-        if can_id in self.dbc_supported_can_id and subsystem != "accumulator":
+        if can_id in self.dbc_supported_can_id and subsystem != "accumulator" and can_id != 0x281:
             message = self.db.get_message_by_frame_id(can_id)
             if len(data) < message.length:
                 return
@@ -210,28 +205,6 @@ class CANDecoder:
             print(f"Failed to decode CAN message ID 0x{can_id:03X}: {e}")
 
     # decode functions
-    def decode_error(self, data):
-        # check if the data is valid
-        flag = struct.unpack('<B', data[2:3])[0]
-        if flag < 0x30: return
-
-        # get error status and code
-        status = struct.unpack('<H', data[0:2])[0]
-        error_code = struct.unpack('<I', data[3:7])[0]
-
-        # update error status and active errors list
-        if status == 0xff10:
-            # error 
-            self.data_store['error']['status'] = 1
-            self.data_store['error']['active_errors'].append(error_code)
-        elif status == 0x0: 
-            # no error
-            self.data_store['error']['status'] = 0
-            self.data_store['error']['active_errors'].clear()
-        else:
-            print(f"Unknown error status: {status}")
-
-
     def decode_timestamp(self, decoded):
         ms_since_midnight = decoded.get('MillisecondsSinceMidnight')
         days_since_1984 = decoded.get('DaysSince1984')
@@ -250,6 +223,10 @@ class CANDecoder:
         self.data_store['vcu']['brake'] = decoded.get('Brake')
         self.data_store['vcu']['bse1'] = decoded.get('BSE1')
         self.data_store['vcu']['bse2'] = decoded.get('BSE2')
+
+    def decode_vcu_status(self, data):
+        if len(data) < 2: return
+        self.data_store['vcu']['status'] = struct.unpack('<H', data[0:2])[0]
 
     def decode_vcu_suspension(self, decoded):                    
         self.data_store['vcu']['suspF'] = decoded.get('SUSP_F') * 0.001 + 0.3

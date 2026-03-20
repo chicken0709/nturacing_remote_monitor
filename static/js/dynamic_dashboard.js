@@ -29,40 +29,6 @@ class NTURTDashboard {
         this.loadCurrentMode();
         this.loadCanLoggingStatus();
         console.log('NTURT Dashboard initialized - Version 2026-01-30 with vehicle connection detection');
-    
-        // Error code mapping
-        this.errorCodeMap = {
-            0: "ERR_CODE_STEER",
-            1: "ERR_CODE_ACCEL",
-            2: "ERR_CODE_APPS1",
-            3: "ERR_CODE_APPS2",
-            4: "ERR_CODE_BRAKE",
-            5: "ERR_CODE_BSE1",
-            6: "ERR_CODE_BSE2",
-            7: "ERR_CODE_PEDAL_PLAUS",
-            8: "ERR_CODE_ACC",
-            9: "ERR_CODE_ACC_COMM",
-            10: "ERR_CODE_INV_FL",
-            11: "ERR_CODE_INV_FR",
-            12: "ERR_CODE_INV_RL",
-            13: "ERR_CODE_INV_RR",
-            14: "ERR_CODE_INV_FL_HV_LOW",
-            15: "ERR_CODE_INV_FR_HV_LOW",
-            16: "ERR_CODE_INV_RL_HV_LOW",
-            17: "ERR_CODE_INV_RR_HV_LOW",
-            18: "ERR_CODE_EMCY_STOP",
-            19: "ERR_CODE_CANBUS",
-            20: "ERR_CODE_HB_VCU",
-            21: "ERR_CODE_HB_SENSORS",
-            22: "ERR_CODE_HB_RPI",
-            23: "ERR_CODE_HB_IMU",
-            24: "ERR_CODE_HB_GPS",
-            25: "ERR_CODE_HB_ACC",
-            26: "ERR_CODE_HB_INV_FL",
-            27: "ERR_CODE_HB_INV_FR",
-            28: "ERR_CODE_HB_INV_RL",
-            29: "ERR_CODE_HB_INV_RR",
-        };
     }
 
     closeWebSocket() {
@@ -202,8 +168,8 @@ class NTURTDashboard {
             // Update playback controls if available
             this.updatePlaybackControls(data);
 
-            // Update error status
-            this.updateErrorStatus(data.error);
+            // Update vcu status
+            this.updateVCUStatus(data.vcu);
 
         } catch (error) {
             console.error('Error updating dashboard:', error);
@@ -618,6 +584,56 @@ class NTURTDashboard {
             });
         }
 
+        const errorBackgroundPlugin = {
+            id: 'errorBackground',
+            afterDatasetsDraw(chart) {
+                if (!chart.statusHistory || chart.statusHistory.length === 0) return;
+                
+                // Check if there are ANY errors - if not, don't draw anything
+                const hasAnyError = chart.statusHistory.some(status => status === true);
+                if (!hasAnyError) return;
+                
+                const ctx = chart.ctx;
+                const { left, top, width, height } = chart.chartArea;
+                const dataLength = chart.data.labels.length;
+                
+                if (!ctx || dataLength === 0 || !chart.statusHistory) return;
+                
+                // Calculate pixel width per data point
+                const pixelWidth = width / dataLength;
+                
+                let errorStartIndex = -1;
+                
+                for (let i = 0; i < chart.statusHistory.length; i++) {
+                    const hasError = chart.statusHistory[i] === true;
+                    
+                    if (hasError && errorStartIndex === -1) {
+                        errorStartIndex = i;
+                    } else if (!hasError && errorStartIndex !== -1) {
+                        // Draw rectangle for error range
+                        const startX = left + (errorStartIndex * pixelWidth);
+                        const endX = left + (i * pixelWidth);
+                        
+                        ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+                        ctx.fillRect(startX, top, endX - startX, height);
+                        
+                        errorStartIndex = -1;
+                    }
+                }
+                
+                // Handle error extending to end
+                if (errorStartIndex !== -1) {
+                    const startX = left + (errorStartIndex * pixelWidth);
+                    const endX = left + width;
+                    
+                    ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+                    ctx.fillRect(startX, top, endX - startX, height);
+                }
+            }
+        };
+
+        Chart.register(errorBackgroundPlugin);
+
         // Initialize RPM Chart
         const rpmCtx = document.getElementById('rpm-chart');
         if (rpmCtx) {
@@ -872,12 +888,16 @@ class NTURTDashboard {
                 dataset.data.push(torqueData[index]);
             });
             
-            // Limit data points
+            // Limit data points AND sync statusHistory
             if (this.torqueChart.data.labels.length > this.maxHistoryPoints) {
                 this.torqueChart.data.labels.shift();
                 this.torqueChart.data.datasets.forEach(dataset => {
                     dataset.data.shift();
                 });
+                // TRIM statusHistory too!
+                if (this.torqueChart.statusHistory && this.torqueChart.statusHistory.length > 0) {
+                    this.torqueChart.statusHistory.shift();
+                }
             }
             
             this.torqueChart.update('none');
@@ -1709,31 +1729,92 @@ class NTURTDashboard {
         }
     }
 
-    updateErrorStatus(error) {
-        if (!error) return;
-        const statusText = document.getElementById('error-status-text');
-        const errorList = document.getElementById('error-list');
-
-        if (error.status === 0 || !error.active_errors || error.active_errors.length === 0) {
-            statusText.textContent = '✅ No Errors';
-            statusText.className = 'text-lg font-bold text-green-400';
-            
-            if (errorList) {
-                errorList.innerHTML = '';
-            }
+    updateVCUStatus(vcu) {
+        if (!vcu) return;
+        
+        const statusList = document.getElementById('vcu-list');
+        if (!statusList) return;
+        
+        const status = vcu.status;
+        
+        // Define status bit flags
+        const STATUS_FLAGS = {
+            STATE_READY: 1 << 0,
+            STATE_RTD_BLINK: 1 << 1,
+            STATE_RTD_STEADY: 1 << 2,
+            STATE_RTD_READY: 1 << 3,
+            STATE_RTD_SOUND: 1 << 4,
+            STATE_RUNNING: 1 << 5,
+            STATE_RUNNING_OK: 1 << 6,
+            STATE_RUNNING_ERROR: 1 << 7,
+            STATE_ERROR: 1 << 8
+        };
+        
+        // Decode active states
+        const activeStates = [];
+        let hasError = (status & (STATUS_FLAGS.STATE_ERROR | STATUS_FLAGS.STATE_RUNNING_ERROR)) !== 0;
+        
+        if (status === null || status === undefined) {
+            activeStates.push({ name: 'N/A', emoji: '❓', color: 'text-slate-400' });
+        } else if (status === 0) {
+            activeStates.push({ name: 'INVALID', emoji: '❌', color: 'text-red-400' });
+            hasError = true;
         } else {
-            statusText.textContent = '🚨 Errors Present';
-            statusText.className = 'text-lg font-bold text-red-400';
-            
-            // Display active errors
-            if (errorList && error.active_errors) {
-                errorList.innerHTML = error.active_errors.map(code => {
-                    const errorName = this.errorCodeMap[code] || `UNKNOWN_ERR_${code}`;
-                    return `<div class="error-item">• ${errorName}</div>`;
-                }).join('');
+            for (const [flagName, flagBit] of Object.entries(STATUS_FLAGS)) {
+                if ((status & flagBit) !== 0) {
+                    const displayName = flagName.replace('STATE_', '');
+                    let emoji = '⚪';
+                    let color = 'text-slate-400';
+                    
+                    if (displayName.includes('ERROR')) {
+                        emoji = '🔴';
+                        color = 'text-red-400';
+                        hasError = true;
+                    } else if (displayName.includes('RUNNING')) {
+                        emoji = '🟢';
+                        color = 'text-green-400';
+                    } else if (displayName.includes('RTD')) {
+                        emoji = '🟡';
+                        color = 'text-yellow-400';
+                    } else if (displayName === 'READY') {
+                        emoji = '🟢';
+                        color = 'text-green-400';
+                    }
+                    
+                    activeStates.push({ name: displayName, emoji, color });
+                }
             }
         }
+        
+        // Display in list
+        statusList.innerHTML = activeStates.map(state => 
+            `<div class="${state.color}">${state.emoji} ${state.name}</div>`
+        ).join('');
+
+        // Update torque graph with error indicator
+        if (this.torqueChart) {
+            if (!this.torqueChart.statusHistory) {
+                this.torqueChart.statusHistory = [];
+            }
+            
+            const currentDataLength = this.torqueChart.data.labels.length;
+            
+            if (this.torqueChart.statusHistory.length > currentDataLength) {
+                this.torqueChart.statusHistory.splice(currentDataLength);
+            }
+            
+            while (this.torqueChart.statusHistory.length < currentDataLength) {
+                this.torqueChart.statusHistory.push(false);
+            }
+            
+            if (currentDataLength > 0) {
+                this.torqueChart.statusHistory[currentDataLength - 1] = hasError;
+            }
+            
+            this.torqueChart.update('none');
+        }
     }
+    
 }
 
 // Initialize dashboard when DOM is loaded

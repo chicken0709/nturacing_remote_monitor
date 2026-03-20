@@ -226,8 +226,7 @@ class RemoteCANServer:
             'update_time': datetime.now().isoformat(),
             'vehicle_clients': len(vehicle_clients),
             'vehicle_connected': self.vehicle_connected,
-            'last_data_time': self.last_data_time,
-            'error': self.data_store['error']
+            'last_data_time': self.last_data_time
         }
 
     async def broadcast_to_web(self, data):
