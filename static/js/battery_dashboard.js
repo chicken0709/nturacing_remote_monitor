@@ -55,20 +55,6 @@ function scrollToSegment(type, segmentIndex) {
     }, 300); // Wait for collapse animation
 }
 
-// Scroll to segment column (for table header clicks)
-function scrollToSegmentColumn(type, segmentIndex) {
-    // Just expand the appropriate section
-    const contentId = type === 'voltage' ? 'voltages-content' : 'temperatures-content';
-    const iconId = type === 'voltage' ? 'voltages-icon' : 'temperatures-icon';
-    const content = document.getElementById(contentId);
-    const icon = document.getElementById(iconId);
-    
-    if (content.classList.contains('collapsed')) {
-        content.classList.remove('collapsed');
-        icon.classList.remove('collapsed');
-    }
-}
-
 // Toggle collapse function
 function toggleCollapse(section) {
     const content = document.getElementById(`${section}-content`);
@@ -104,6 +90,20 @@ ws.onerror = (error) => {
 ws.onmessage = (event) => {
     try {
         const data = JSON.parse(event.data);
+        
+        // 更新车辆连接状态
+        if (data.vehicle_connected !== undefined) {
+            if (data.vehicle_connected) {
+                document.getElementById('connection-status').className = 'connection-indicator connected';
+                document.getElementById('connection-text').textContent = 'Connected';
+                document.querySelector('.status-dot').className = 'status-dot green';
+            } else {
+                document.getElementById('connection-status').className = 'connection-indicator disconnected';
+                document.getElementById('connection-text').textContent = 'Disconnected';
+                document.querySelector('.status-dot').className = 'status-dot red';
+            }
+        }
+        
         updateDisplay(data);
     } catch (error) {
         console.error('Error parsing data:', error);
@@ -112,32 +112,49 @@ ws.onmessage = (event) => {
 
 // Initialize cell displays
 function initializeCellDisplays() {
-    // Initialize segment overview table
-    const segmentOverviewTbody = document.getElementById('segment-overview-tbody');
+    // Initialize segment overview
+    const segmentOverviewContainer = document.getElementById('segment-overview-container');
     for (let seg = 0; seg < 7; seg++) {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td class="segment-name" onclick="scrollToSegment('voltage', ${seg})">Segment ${seg}</td>
-            <td class="text-center voltage-cell" onclick="scrollToSegment('voltage', ${seg})">
-                <span id="overview-seg${seg}-v-avg">--V</span>
-            </td>
-            <td class="text-center voltage-cell" onclick="scrollToSegment('voltage', ${seg})">
-                <span id="overview-seg${seg}-v-max">--V</span>
-            </td>
-            <td class="text-center voltage-cell" onclick="scrollToSegment('voltage', ${seg})">
-                <span id="overview-seg${seg}-v-min">--V</span>
-            </td>
-            <td class="text-center temp-cell" onclick="scrollToSegment('temperature', ${seg})">
-                <span id="overview-seg${seg}-t-avg">--°C</span>
-            </td>
-            <td class="text-center temp-cell" onclick="scrollToSegment('temperature', ${seg})">
-                <span id="overview-seg${seg}-t-max">--°C</span>
-            </td>
-            <td class="text-center temp-cell" onclick="scrollToSegment('temperature', ${seg})">
-                <span id="overview-seg${seg}-t-min">--°C</span>
-            </td>
+        const segmentCard = document.createElement('div');
+        segmentCard.className = 'segment-overview-card';
+        segmentCard.innerHTML = `
+            <div class="segment-overview-title">Segment ${seg}</div>
+            <div class="segment-overview-voltage-section" onclick="scrollToSegment('voltage', ${seg})">
+                <div class="segment-overview-label text-xs">Voltage</div>
+                <div class="segment-overview-stats">
+                    <div class="segment-overview-stat">
+                        <div class="segment-overview-label">Avg</div>
+                        <div class="segment-overview-value" id="overview-seg${seg}-v-avg">--V</div>
+                    </div>
+                    <div class="segment-overview-stat">
+                        <div class="segment-overview-label">Max</div>
+                        <div class="segment-overview-value" id="overview-seg${seg}-v-max">--V</div>
+                    </div>
+                    <div class="segment-overview-stat">
+                        <div class="segment-overview-label">Min</div>
+                        <div class="segment-overview-value" id="overview-seg${seg}-v-min">--V</div>
+                    </div>
+                </div>
+            </div>
+            <div class="segment-overview-temp-section" onclick="scrollToSegment('temperature', ${seg})">
+                <div class="segment-overview-label text-xs">Temperature</div>
+                <div class="segment-overview-stats">
+                    <div class="segment-overview-stat">
+                        <div class="segment-overview-label">Avg</div>
+                        <div class="segment-overview-value" id="overview-seg${seg}-t-avg">--°C</div>
+                    </div>
+                    <div class="segment-overview-stat">
+                        <div class="segment-overview-label">Max</div>
+                        <div class="segment-overview-value" id="overview-seg${seg}-t-max">--°C</div>
+                    </div>
+                    <div class="segment-overview-stat">
+                        <div class="segment-overview-label">Min</div>
+                        <div class="segment-overview-value" id="overview-seg${seg}-t-min">--°C</div>
+                    </div>
+                </div>
+            </div>
         `;
-        segmentOverviewTbody.appendChild(row);
+        segmentOverviewContainer.appendChild(segmentCard);
     }
 
     // Initialize voltage cells (105 cells, 7 segments of 15 cells each)
@@ -147,16 +164,11 @@ function initializeCellDisplays() {
         segmentDiv.className = 'mb-6';
         segmentDiv.id = `voltage-segment-${seg}`; // Add ID for scroll targeting
         
-        // Segment header - UPDATED WITH TOTAL VOLTAGE
+        // Segment header
         const headerDiv = document.createElement('div');
         headerDiv.className = 'segment-header';
         headerDiv.innerHTML = `
-            <div class="flex justify-between items-center">
-                <span class="text-lg font-bold text-blue-300">Segment ${seg}</span>
-                <span class="text-xl font-bold text-cyan-300">
-                    Total: <span id="seg${seg}-voltage-total">--V</span>
-                </span>
-            </div>
+            <span class="text-lg font-bold text-blue-300">Segment ${seg}</span>
             <div class="mt-2">
                 <span class="segment-stat">
                     <span class="segment-stat-label">Avg:</span>
@@ -260,35 +272,40 @@ function updateDisplay(data) {
         document.getElementById('acc-soc').textContent = acc.soc.toFixed(1) + '%';
     }
 
-    // Update Current - NOW IN SEPARATE FIELD
-    if (acc.current !== null && acc.current !== undefined) {
-        const currentEl = document.getElementById('acc-current-main');
-        currentEl.textContent = acc.current.toFixed(2) + 'A';
-    }
-
-    // Process cell voltages - calculate total and find max/min cells
+    // Process cell voltages from flat array (105 cells, 15 per segment)
     if (acc.cell_voltages && Array.isArray(acc.cell_voltages)) {
         let totalVoltage = 0;
         let validVoltages = 0;
-        let maxCellVoltage = -Infinity;
-        let minCellVoltage = Infinity;
-        let maxCellIndex = -1;
-        let minCellIndex = -1;
+        let maxSegVoltage = -Infinity;
+        let minSegVoltage = Infinity;
+        let maxSegName = '--';
+        let minSegName = '--';
 
-        // Find max/min across all cells
-        for (let i = 0; i < acc.cell_voltages.length; i++) {
-            const voltage = acc.cell_voltages[i];
-            if (voltage !== null && voltage !== undefined) {
-                totalVoltage += voltage;
-                validVoltages++;
-                
-                if (voltage > maxCellVoltage) {
-                    maxCellVoltage = voltage;
-                    maxCellIndex = i;
+        // Calculate segment voltages
+        for (let segIdx = 0; segIdx < 7; segIdx++) {
+            const startIdx = segIdx * 15;
+            const endIdx = Math.min(startIdx + 15, acc.cell_voltages.length);
+            let segVoltage = 0;
+            let segValidCount = 0;
+
+            for (let i = startIdx; i < endIdx; i++) {
+                if (acc.cell_voltages[i] !== null && acc.cell_voltages[i] !== undefined) {
+                    segVoltage += acc.cell_voltages[i];
+                    segValidCount++;
                 }
-                if (voltage < minCellVoltage) {
-                    minCellVoltage = voltage;
-                    minCellIndex = i;
+            }
+
+            if (segValidCount > 0) {
+                totalVoltage += segVoltage;
+                validVoltages += segValidCount;
+
+                if (segVoltage > maxSegVoltage) {
+                    maxSegVoltage = segVoltage;
+                    maxSegName = `Segment ${segIdx}`;
+                }
+                if (segVoltage < minSegVoltage) {
+                    minSegVoltage = segVoltage;
+                    minSegName = `Segment ${segIdx}`;
                 }
             }
         }
@@ -307,31 +324,27 @@ function updateDisplay(data) {
                 voltageEl.className = 'stat-value text-white';
             }
             
-            // Show max cell
-            const maxSegment = Math.floor(maxCellIndex / 15);
-            document.getElementById('acc-voltage-max-seg').textContent = `Cell ${maxCellIndex} (Seg ${maxSegment})`;
+            document.getElementById('acc-voltage-max-seg').textContent = maxSegName;
             
             const maxVoltageEl = document.getElementById('acc-voltage-max');
-            maxVoltageEl.textContent = maxCellVoltage.toFixed(3) + 'V';
-            // Color code max voltage: white default, yellow >=4.18, red >=4.2
-            if (maxCellVoltage >= 4.2) {
+            maxVoltageEl.textContent = maxSegVoltage.toFixed(2) + 'V';
+            // Color code max voltage: white default, yellow >=62.7, red >=63
+            if (maxSegVoltage >= 63.0) {
                 maxVoltageEl.style.color = '#ef4444';
-            } else if (maxCellVoltage >= 4.18) {
+            } else if (maxSegVoltage >= 62.7) {
                 maxVoltageEl.style.color = '#eab308';
             } else {
                 maxVoltageEl.style.color = '#ffffff';
             }
             
-            // Show min cell
-            const minSegment = Math.floor(minCellIndex / 15);
-            document.getElementById('acc-voltage-min-seg').textContent = `Cell ${minCellIndex} (Seg ${minSegment})`;
+            document.getElementById('acc-voltage-min-seg').textContent = minSegName;
             
             const minVoltageEl = document.getElementById('acc-voltage-min');
-            minVoltageEl.textContent = minCellVoltage.toFixed(3) + 'V';
-            // Color code min voltage: white default, yellow >=4.18, red >=4.2
-            if (minCellVoltage >= 4.2) {
+            minVoltageEl.textContent = minSegVoltage.toFixed(2) + 'V';
+            // Color code min voltage: white default, yellow >=62.7, red >=63
+            if (minSegVoltage >= 63.0) {
                 minVoltageEl.style.color = '#ef4444';
-            } else if (minCellVoltage >= 4.18) {
+            } else if (minSegVoltage >= 62.7) {
                 minVoltageEl.style.color = '#eab308';
             } else {
                 minVoltageEl.style.color = '#ffffff';
@@ -339,23 +352,35 @@ function updateDisplay(data) {
         }
     }
 
-    // Process cell temperatures - calculate average and find hottest cell
+    // Process cell temperatures from flat array (224 cells, 32 per segment)
     if (acc.cell_temperatures && Array.isArray(acc.cell_temperatures)) {
         let totalTemp = 0;
         let validTemps = 0;
-        let maxCellTemp = -Infinity;
-        let maxCellTempIndex = -1;
+        let maxSegTemp = -Infinity;
+        let maxSegTempName = '--';
 
-        // Find max temp across all cells
-        for (let i = 0; i < acc.cell_temperatures.length; i++) {
-            const temp = acc.cell_temperatures[i];
-            if (temp !== null && temp !== undefined && temp !== -13) {
-                totalTemp += temp;
-                validTemps++;
-                
-                if (temp > maxCellTemp) {
-                    maxCellTemp = temp;
-                    maxCellTempIndex = i;
+        // Calculate segment temperatures
+        for (let segIdx = 0; segIdx < 7; segIdx++) {
+            const startIdx = segIdx * 32;
+            const endIdx = Math.min(startIdx + 32, acc.cell_temperatures.length);
+            let segTempSum = 0;
+            let segValidCount = 0;
+
+            for (let i = startIdx; i < endIdx; i++) {
+                if (acc.cell_temperatures[i] !== null && acc.cell_temperatures[i] !== undefined && acc.cell_temperatures[i] !== -13) {
+                    segTempSum += acc.cell_temperatures[i];
+                    segValidCount++;
+                }
+            }
+
+            if (segValidCount > 0) {
+                const segAvgTemp = segTempSum / segValidCount;
+                totalTemp += segTempSum;
+                validTemps += segValidCount;
+
+                if (segAvgTemp > maxSegTemp) {
+                    maxSegTemp = segAvgTemp;
+                    maxSegTempName = `Segment ${segIdx}`;
                 }
             }
         }
@@ -375,24 +400,19 @@ function updateDisplay(data) {
                 tempElement.className = 'stat-value text-white';
             }
 
-            // Show hottest cell
-            const hottestSegment = Math.floor(maxCellTempIndex / 32);
-            document.getElementById('acc-temp-max-seg').textContent = `Cell ${maxCellTempIndex} (Seg ${hottestSegment})`;
+            document.getElementById('acc-temp-max-seg').textContent = maxSegTempName;
             
             const maxTempEl = document.getElementById('acc-temp-max');
-            if (maxCellTemp !== -Infinity) {
-                maxTempEl.textContent = maxCellTemp.toFixed(1) + '°C';
+            if (maxSegTemp !== -Infinity) {
+                maxTempEl.textContent = maxSegTemp.toFixed(1) + '°C';
                 // Color code max temperature: white default, yellow >=50, red >=70
-                if (maxCellTemp >= 70) {
+                if (maxSegTemp >= 70) {
                     maxTempEl.style.color = '#ef4444';
-                } else if (maxCellTemp >= 50) {
+                } else if (maxSegTemp >= 50) {
                     maxTempEl.style.color = '#eab308';
                 } else {
                     maxTempEl.style.color = '#ffffff';
                 }
-            } else {
-                maxTempEl.textContent = '--';
-                maxTempEl.style.color = '#ffffff';
             }
         }
     }
@@ -401,11 +421,9 @@ function updateDisplay(data) {
     let hasError = false;
     let errorMessage = 'No Errors';
 
-    if (acc.error_flags && acc.error_flags.length > 0) {
-        hasError = acc.error_flags.some(flag => flag !== 0);
-        if (hasError) {
-            errorMessage = 'Error Detected';
-        }
+    if (acc.status !== null && acc.status !== undefined && acc.status !== 1) {
+        hasError = true;
+        errorMessage = `Status: ${acc.status}`;
     }
 
     const statusText = document.getElementById('acc-status-text');
@@ -425,6 +443,7 @@ function updateDisplay(data) {
             const endIdx = Math.min(startIdx + 15, acc.cell_voltages.length);
             
             // Collect voltages for this segment
+            // Collect voltages for this segment
             const voltages = [];
             for (let i = startIdx; i < endIdx; i++) {
                 if (acc.cell_voltages[i] !== null && acc.cell_voltages[i] !== undefined) {
@@ -433,24 +452,9 @@ function updateDisplay(data) {
             }
 
             if (voltages.length > 0) {
-                const totalSegVoltage = voltages.reduce((a, b) => a + b, 0);
-                const avgVoltage = totalSegVoltage / voltages.length;
+                const avgVoltage = voltages.reduce((a, b) => a + b, 0) / voltages.length;
                 const maxVoltage = Math.max(...voltages);
                 const minVoltage = Math.min(...voltages);
-
-                // UPDATE SEGMENT TOTAL VOLTAGE
-                const totalEl = document.getElementById(`seg${segIdx}-voltage-total`);
-                if (totalEl) {
-                    totalEl.textContent = totalSegVoltage.toFixed(2) + 'V';
-                    // Color code total: white default, yellow >=62.7, red >=63
-                    if (totalSegVoltage >= 63.0) {
-                        totalEl.style.color = '#ef4444';
-                    } else if (totalSegVoltage >= 62.7) {
-                        totalEl.style.color = '#eab308';
-                    } else {
-                        totalEl.style.color = '#06b6d4'; // cyan
-                    }
-                }
 
                 // Update segment overview
                 const overviewAvgEl = document.getElementById(`overview-seg${segIdx}-v-avg`);
@@ -494,7 +498,7 @@ function updateDisplay(data) {
                 const avgEl = document.getElementById(`seg${segIdx}-voltage-avg`);
                 if (avgEl) {
                     avgEl.textContent = avgVoltage.toFixed(3) + 'V';
-                    // Color code segment average: white default, yellow >=4.18, red >=4.2
+                    // Color code segment average
                     if (avgVoltage >= 4.2) {
                         avgEl.className = 'segment-stat-value text-red-400';
                     } else if (avgVoltage >= 4.18) {
@@ -507,7 +511,6 @@ function updateDisplay(data) {
                 const maxEl = document.getElementById(`seg${segIdx}-voltage-max`);
                 if (maxEl) {
                     maxEl.textContent = maxVoltage.toFixed(3) + 'V';
-                    // Color code max: white default, yellow >=4.18, red >=4.2
                     if (maxVoltage >= 4.2) {
                         maxEl.className = 'segment-stat-value text-red-400';
                     } else if (maxVoltage >= 4.18) {
@@ -520,7 +523,6 @@ function updateDisplay(data) {
                 const minEl = document.getElementById(`seg${segIdx}-voltage-min`);
                 if (minEl) {
                     minEl.textContent = minVoltage.toFixed(3) + 'V';
-                    // Color code min: white default, yellow >=4.18, red >=4.2
                     if (minVoltage >= 4.2) {
                         minEl.className = 'segment-stat-value text-red-400';
                     } else if (minVoltage >= 4.18) {
@@ -529,26 +531,27 @@ function updateDisplay(data) {
                         minEl.className = 'segment-stat-value text-white';
                     }
                 }
+            }
 
-                // Update individual cells
-                for (let i = startIdx; i < endIdx; i++) {
-                    const voltage = acc.cell_voltages[i];
-                    const cellEl = document.getElementById(`cell-v-${i}`);
-                    if (cellEl && voltage !== null && voltage !== undefined) {
-                        const valueEl = cellEl.querySelector('.cell-value');
-                        valueEl.textContent = voltage.toFixed(3);
+            // Update individual cells
+            for (let i = startIdx; i < endIdx; i++) {
+                const cellIndex = i;
+                const voltage = acc.cell_voltages[i];
+                const cellEl = document.getElementById(`cell-v-${cellIndex}`);
+                if (cellEl && voltage !== null && voltage !== undefined) {
+                    const valueEl = cellEl.querySelector('.cell-value');
+                    valueEl.textContent = voltage.toFixed(3) + 'V';
 
-                        // Color code cell: white default, yellow >=4.18, red >=4.2
-                        if (voltage >= 4.2) {
-                            cellEl.className = 'cell-item cell-danger';
-                            valueEl.className = 'cell-value text-red-400';
-                        } else if (voltage >= 4.18) {
-                            cellEl.className = 'cell-item cell-warning';
-                            valueEl.className = 'cell-value text-yellow-400';
-                        } else {
-                            cellEl.className = 'cell-item cell-normal';
-                            valueEl.className = 'cell-value text-white';
-                        }
+                    // Color code cell: white default, yellow >=4.18, red >=4.2
+                    if (voltage >= 4.2) {
+                        cellEl.className = 'cell-item cell-danger';
+                        valueEl.className = 'cell-value text-red-400';
+                    } else if (voltage >= 4.18) {
+                        cellEl.className = 'cell-item cell-warning';
+                        valueEl.className = 'cell-value text-yellow-400';
+                    } else {
+                        cellEl.className = 'cell-item cell-normal';
+                        valueEl.className = 'cell-value text-white';
                     }
                 }
             }
@@ -562,22 +565,17 @@ function updateDisplay(data) {
             const endIdx = Math.min(startIdx + 32, acc.cell_temperatures.length);
             
             // Collect temperatures for this segment
-            const validTemps = [];
-            const allTemps = [];
+            const temps = [];
             for (let i = startIdx; i < endIdx; i++) {
-                const temp = acc.cell_temperatures[i];
-                if (temp !== null && temp !== undefined) {
-                    allTemps.push(temp);
-                    if (temp !== -13) {
-                        validTemps.push(temp);
-                    }
+                if (acc.cell_temperatures[i] !== null && acc.cell_temperatures[i] !== undefined && acc.cell_temperatures[i] !== -13) {
+                    temps.push(acc.cell_temperatures[i]);
                 }
             }
-            
-            if (allTemps.length > 0) {
-                const avgTemp = validTemps.length > 0 ? validTemps.reduce((a, b) => a + b, 0) / validTemps.length : 0;
-                const maxTemp = Math.max(...allTemps);
-                const minTemp = Math.min(...allTemps);
+
+            if (temps.length > 0) {
+                const avgTemp = temps.reduce((a, b) => a + b, 0) / temps.length;
+                const maxTemp = Math.max(...temps);
+                const minTemp = Math.min(...temps);
 
                 // Update segment overview
                 const overviewAvgEl = document.getElementById(`overview-seg${segIdx}-t-avg`);
@@ -608,10 +606,7 @@ function updateDisplay(data) {
                 const overviewMinEl = document.getElementById(`overview-seg${segIdx}-t-min`);
                 if (overviewMinEl) {
                     overviewMinEl.textContent = minTemp.toFixed(1) + '°C';
-                    // Show error color for sensor errors (-13)
-                    if (minTemp === -13) {
-                        overviewMinEl.style.color = '#ef4444';  // Red for sensor error
-                    } else if (minTemp >= 70) {
+                    if (minTemp >= 70) {
                         overviewMinEl.style.color = '#ef4444';
                     } else if (minTemp >= 50) {
                         overviewMinEl.style.color = '#eab308';
@@ -650,10 +645,8 @@ function updateDisplay(data) {
                 const minEl = document.getElementById(`seg${segIdx}-temp-min`);
                 if (minEl) {
                     minEl.textContent = minTemp.toFixed(1) + '°C';
-                    // Show error color for sensor errors (-13)
-                    if (minTemp === -13) {
-                        minEl.className = 'segment-stat-value text-red-400';  // Red for sensor error
-                    } else if (minTemp >= 70) {
+                    // Color code min: white default, yellow >=50, red >=70
+                    if (minTemp >= 70) {
                         minEl.className = 'segment-stat-value text-red-400';
                     } else if (minTemp >= 50) {
                         minEl.className = 'segment-stat-value text-yellow-400';
@@ -661,29 +654,27 @@ function updateDisplay(data) {
                         minEl.className = 'segment-stat-value text-white';
                     }
                 }
+            }
 
-                // Update individual cells
-                for (let i = startIdx; i < endIdx; i++) {
-                    const temp = acc.cell_temperatures[i];
-                    const cellEl = document.getElementById(`cell-t-${i}`);
-                    if (cellEl && temp !== null && temp !== undefined) {
-                        const valueEl = cellEl.querySelector('.cell-value');
-                        valueEl.textContent = temp.toFixed(1);
+            // Update individual cells
+            for (let i = startIdx; i < endIdx; i++) {
+                const cellIndex = i;
+                const temp = acc.cell_temperatures[i];
+                const cellEl = document.getElementById(`cell-t-${cellIndex}`);
+                if (cellEl && temp !== null && temp !== undefined) {
+                    const valueEl = cellEl.querySelector('.cell-value');
+                    valueEl.textContent = temp.toFixed(1) + '°C';
 
-                        // Color code cell: red for -13 (sensor error), otherwise normal rules
-                        if (temp === -13) {
-                            cellEl.className = 'cell-item cell-danger';
-                            valueEl.className = 'cell-value text-red-400';
-                        } else if (temp >= 70) {
-                            cellEl.className = 'cell-item cell-danger';
-                            valueEl.className = 'cell-value text-red-400';
-                        } else if (temp >= 50) {
-                            cellEl.className = 'cell-item cell-warning';
-                            valueEl.className = 'cell-value text-yellow-400';
-                        } else {
-                            cellEl.className = 'cell-item cell-normal';
-                            valueEl.className = 'cell-value text-white';
-                        }
+                    // Color code cell: white default, yellow >=50, red >=70
+                    if (temp >= 70) {
+                        cellEl.className = 'cell-item cell-danger';
+                        valueEl.className = 'cell-value text-red-400';
+                    } else if (temp >= 50) {
+                        cellEl.className = 'cell-item cell-warning';
+                        valueEl.className = 'cell-value text-yellow-400';
+                    } else {
+                        cellEl.className = 'cell-item cell-normal';
+                        valueEl.className = 'cell-value text-white';
                     }
                 }
             }
