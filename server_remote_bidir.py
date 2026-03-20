@@ -322,7 +322,7 @@ async def chart_dashboard(request: Request):
 
 @app.get("/IMU", response_class=HTMLResponse)
 async def imu_dashboard(request: Request):
-    return templates.TemplateResponse("imu_dashboard.html", {"request": request})
+    return templates.TemplateResponse("IMU_dashboard.html", {"request": request})
 
 @app.get("/xsens", response_class=HTMLResponse)
 async def xsens_dashboard(request: Request):
