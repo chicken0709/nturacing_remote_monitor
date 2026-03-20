@@ -55,7 +55,6 @@ class RemoteCANServer:
         self.data_store = self.decoder.data_store
 
         self.message_count = 0
-        self.running = True
         
         print("Remote CAN Server initialized")
 
@@ -91,113 +90,25 @@ class RemoteCANServer:
             'message_count': 0
         }
         
+        message_handlers = {
+            'can_message': 'handle_single_can_message',
+            'can_batch': 'handle_batched_can_message',
+            'heartbeat': 'handle_heartbeat',
+            'csv_list': 'handle_csv_list',
+            'mode_changed': 'handle_mode_changed',
+            'csv_status': 'handle_csv_status',
+            'csv_progress': 'handle_csv_progress',
+            'error': 'handle_error'
+        }
+
         try:
             async for message in websocket:
                 try:
                     data = json.loads(message)
+                    handler_name = message_handlers.get(data['type'])
+                    handler = getattr(self, handler_name)
                     
-                    if data['type'] == 'can_message':
-                        # handle single CAN message (backward compatibility)
-                        can_id = data['can_id']
-                        can_data = bytes(data['data'])
-                        bus_id = data.get('bus_id', 0)
-                        
-                        # create mock CAN message
-                        mock_message = self.create_mock_can_message(can_id, can_data)
-                        # self.process_can_message(mock_message)
-                        self.decoder.decode_can_message(mock_message)
-                        self.message_count += 1
-                        vehicle_clients[client_id]['message_count'] += 1
-                        
-                        # update last data reception time
-                        self.last_data_time = time.time()
-                        self.vehicle_connected = True
-                    
-                    elif data['type'] == 'can_batch':
-                        # handle batched CAN messages
-                        messages = data.get('messages', [])
-                        for msg in messages:
-                            can_id = msg['can_id']
-                            can_data = bytes(msg['data'])
-                            bus_id = msg.get('bus_id', 0)
-                            
-                            # create mock CAN message
-                            mock_message = self.create_mock_can_message(can_id, can_data)
-                            # self.process_can_message(mock_message)
-                            self.decoder.decode_can_message(mock_message)
-                            self.message_count += 1
-                            vehicle_clients[client_id]['message_count'] += 1
-                        
-                        # update last data reception time
-                        self.last_data_time = time.time()
-                        self.vehicle_connected = True
-                        
-                    elif data['type'] == 'heartbeat':
-                        # update heartbeat 
-                        vehicle_clients[client_id]['last_heartbeat'] = time.time()
-                        vehicle_clients[client_id]['mode'] = data.get('mode', 'realtime')
-                        vehicle_clients[client_id]['csv_file'] = data.get('csv_file')
-                        
-                        # print dropped messages info
-                        if 'dropped_messages' in data and data['dropped_messages'] > 0:
-                            print(f"Client {client_id}: Dropped {data['dropped_messages']} messages, Queue: {data.get('queue_size', 0)}")
-                    
-                    elif data['type'] == 'csv_list':
-                        # receive CSV file list
-                        files_count = data.get('count', 0)
-                        print(f"[DEBUG] Received CSV file list: {files_count} files")
-                        print(f"[DEBUG] Files: {[f.get('filename', 'unknown') for f in data.get('files', [])[:5]]}")
-                        vehicle_clients[client_id]['csv_files'] = data.get('files', [])
-                        
-                        # broadcast to all web clients
-                        print(f"[DEBUG] Broadcasting to {len(web_connections)} web clients")
-                        await self.broadcast_to_web({
-                            'type': 'csv_files',
-                            'files': data.get('files', []),
-                            'client_id': client_id
-                        })
-                        print("[DEBUG] Broadcast completed")
-                    
-                    elif data['type'] == 'mode_changed':
-                        # mode change notification
-                        print(f"Mode changed to: {data.get('mode')} for {client_id}")
-                        vehicle_clients[client_id]['mode'] = data.get('mode')
-                        
-                        await self.broadcast_to_web({
-                            'type': 'mode_changed',
-                            'mode': data.get('mode'),
-                            'file': data.get('file'),
-                            'client_id': client_id
-                        })
-                    
-                    elif data['type'] == 'csv_status':
-                        # CSV playback status update
-                        print(f"CSV status: {data.get('status')}")
-                        await self.broadcast_to_web({
-                            'type': 'csv_status',
-                            'status': data.get('status'),
-                            'message': data.get('message')
-                        })
-                    
-                    elif data['type'] == 'csv_progress':
-                        # CSV playback progress update
-                        await self.broadcast_to_web({
-                            'type': 'csv_progress',
-                            'percentage': data.get('percentage', 0),
-                            'current_time': data.get('current_time', 0),
-                            'total_time': data.get('total_time', 0),
-                            'current_index': data.get('current_index', 0),
-                            'total_count': data.get('total_count', 0)
-                        })
-                    
-                    elif data['type'] == 'error':
-                        # error messages from client
-                        print(f"Error from client: {data.get('message')}")
-                        await self.broadcast_to_web({
-                            'type': 'error',
-                            'message': data.get('message')
-                        })
-                        
+                    await handler(data, client_id)
                 except json.JSONDecodeError:
                     print(f"Invalid JSON from {client_id}")
                 except Exception as e:
@@ -209,6 +120,93 @@ class RemoteCANServer:
             if client_id in vehicle_clients:
                 del vehicle_clients[client_id]
 
+    async def handle_single_can_message(self, data, client_id):
+        # handle single CAN message (backward compatibility)
+        can_id = data['can_id']
+        can_data = bytes(data['data'])
+        
+        # create mock CAN message
+        mock_message = self.create_mock_can_message(can_id, can_data)
+        self.decoder.decode_can_message(mock_message)
+        self.message_count += 1
+        vehicle_clients[client_id]['message_count'] += 1
+        
+        # update last data reception time
+        self.last_data_time = time.time()
+        self.vehicle_connected = True
+
+    async def handle_batched_can_message(self, data, client_id):
+        # handle batched CAN messages
+        messages = data.get('messages', [])
+        for msg in messages:
+            await self.handle_single_can_message(msg, client_id)
+                        
+    async def handle_heartbeat(self, data, client_id):
+        # update heartbeat 
+        vehicle_clients[client_id]['last_heartbeat'] = time.time()
+        vehicle_clients[client_id]['mode'] = data.get('mode', 'realtime')
+        vehicle_clients[client_id]['csv_file'] = data.get('csv_file')
+        
+        # print dropped messages info
+        if 'dropped_messages' in data and data['dropped_messages'] > 0:
+            print(f"Client {client_id}: Dropped {data['dropped_messages']} messages, Queue: {data.get('queue_size', 0)}")
+
+    async def handle_csv_list(self, data, client_id):
+        # receive CSV file list
+        files_count = data.get('count', 0)
+        print(f"[DEBUG] Received CSV file list: {files_count} files")
+        print(f"[DEBUG] Files: {[f.get('filename', 'unknown') for f in data.get('files', [])[:5]]}")
+        vehicle_clients[client_id]['csv_files'] = data.get('files', [])
+        
+        # broadcast to all web clients
+        print(f"[DEBUG] Broadcasting to {len(web_connections)} web clients")
+        await self.broadcast_to_web({
+            'type': 'csv_files',
+            'files': data.get('files', []),
+            'client_id': client_id
+        })
+        print("[DEBUG] Broadcast completed")
+
+    async def handle_mode_changed(self, data, client_id):
+        # mode change notification
+        print(f"Mode changed to: {data.get('mode')} for {client_id}")
+        vehicle_clients[client_id]['mode'] = data.get('mode')
+        
+        await self.broadcast_to_web({
+            'type': 'mode_changed',
+            'mode': data.get('mode'),
+            'file': data.get('file'),
+            'client_id': client_id
+        })
+
+    async def handle_csv_status(self, data, client_id):
+        # CSV playback status update
+        print(f"CSV status: {data.get('status')}")
+        await self.broadcast_to_web({
+            'type': 'csv_status',
+            'status': data.get('status'),
+            'message': data.get('message')
+        })
+
+    async def handle_csv_progress(self, data, client_id):
+        # CSV playback progress update
+        await self.broadcast_to_web({
+            'type': 'csv_progress',
+            'percentage': data.get('percentage', 0),
+            'current_time': data.get('current_time', 0),
+            'total_time': data.get('total_time', 0),
+            'current_index': data.get('current_index', 0),
+            'total_count': data.get('total_count', 0)
+        })
+
+    async def handle_error(self, data, client_id):
+        # error messages from client
+        print(f"Error from client: {data.get('message')}")
+        await self.broadcast_to_web({
+            'type': 'error',
+            'message': data.get('message')
+        })
+    
     def create_mock_can_message(self, can_id, data):
         # create mock CAN message object for decoder
         return MockCanMessage(can_id, data)
@@ -251,7 +249,7 @@ class RemoteCANServer:
     
     async def broadcaster_loop(self):
         # broadcast data to web clients periodically
-        while self.running:
+        while True:
             if web_connections:
                 await self.broadcast_data()
             await asyncio.sleep(0.05)  # 20 FPS
@@ -261,10 +259,7 @@ class RemoteCANServer:
         if not web_connections:
             return
         
-        # check vehicle connection status
         self.check_vehicle_connection()
-            
-        # prepare broadcast data
         broadcast_data = self.get_broadcast_data()
         
         # send to all web clients
@@ -392,6 +387,7 @@ async def request_csv_list():
     if not vehicle_clients:
         print("❌ No vehicle client connected")
         return {'error': 'No vehicle client connected'}
+    if not can_server: return {'error': 'CAN server not initialized'}
     
     print(f"📥 API received request CSV list. Vehicle clients: {len(vehicle_clients)}")
     
@@ -404,11 +400,12 @@ async def request_csv_list():
 @app.post('/api/csv/select')
 async def select_csv_file(request: Request):
     # select CSV file for playback
+    if not can_server: return {'error': 'CAN server not initialized'}
+
     data = await request.json()
     filename = data.get('filename')
     
-    if not filename:
-        return {'error': 'No filename provided'}
+    if not filename: return {'error': 'No filename provided'}
     
     print(f"📁 API received select CSV: {filename}")
     
@@ -420,14 +417,13 @@ async def select_csv_file(request: Request):
 @app.post('/api/csv/switch_realtime')
 async def switch_to_realtime():
     # switch back to realtime mode and clear data buffer
-    if not vehicle_clients:
-        return {'error': 'No vehicle client connected'}
+    if not vehicle_clients: return {'error': 'No vehicle client connected'}
+    if not can_server: return {'error': 'CAN server not initialized'}
     
     # clear data buffer
-    if can_server:
-        print("🧹 Clearing data buffer before switching to realtime mode...")
-        can_server.data_store = can_server.decoder.create_empty_data_store()
-        print("✅ Data buffer cleared")
+    print("🧹 Clearing data buffer before switching to realtime mode...")
+    can_server.data_store = can_server.decoder.create_empty_data_store()
+    print("✅ Data buffer cleared")
     
     message_dict = {'type': 'switch_realtime'}
     status_dict = {'status': 'switched', 'buffer_cleared': True}
@@ -437,6 +433,8 @@ async def switch_to_realtime():
 @app.post('/api/csv/pause')
 async def toggle_csv_pause():
     # toggle CSV playback pause/resume
+    if not can_server: return {'error': 'CAN server not initialized'}
+
     print("⏸️ API received toggle pause")
     
     message_dict = {'type': 'csv_pause'}
@@ -447,6 +445,8 @@ async def toggle_csv_pause():
 @app.post('/api/csv/jump_percentage')
 async def jump_to_percentage(request: Request):
     # jump to specified percentage position in CSV playback
+    if not can_server: return {'error': 'CAN server not initialized'}
+    
     data = await request.json()
     percentage = data.get('percentage', 0)
     
@@ -460,6 +460,8 @@ async def jump_to_percentage(request: Request):
 @app.post('/api/csv/jump_time')
 async def jump_time(request: Request):
     # jump forward or backward by specified seconds in CSV playback
+    if not can_server: return {'error': 'CAN server not initialized'}
+
     data = await request.json()
     seconds = data.get('seconds', 0)
     
@@ -473,6 +475,8 @@ async def jump_time(request: Request):
 @app.post('/api/csv/set_speed')
 async def set_playback_speed(request: Request):
     # set playback speed
+    if not can_server: return {'error': 'CAN server not initialized'}
+    
     data = await request.json()
     speed = data.get('speed', 1.0)
     

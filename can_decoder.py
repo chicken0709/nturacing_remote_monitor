@@ -14,7 +14,7 @@ DBC_FILE = "dbc/NTUR_EP6_260307.dbc"
 
 # CAN ID : (subsystem, handler_function_name, param_type)
 # param_type: "raw" (data), "decoded" (decoded), "both" (data + decoded)
-MESSAGE_HANDLERS = { 
+CAN_MESSAGE_CONFIG = { 
     # error
     0x81 : ("error", "decode_error", "raw"),
     # timestamp
@@ -165,10 +165,10 @@ class CANDecoder:
         can_id = msg.arbitration_id
         data = msg.data
 
-        if can_id not in MESSAGE_HANDLERS:
+        if can_id not in CAN_MESSAGE_CONFIG:
             return
         
-        subsystem, handler_name, param_type = MESSAGE_HANDLERS[can_id]
+        subsystem, handler_name, param_type = CAN_MESSAGE_CONFIG[can_id]
         handler = getattr(self, handler_name)
 
         if can_id in self.dbc_supported_can_id and subsystem != "accumulator":
