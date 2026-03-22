@@ -244,31 +244,31 @@ function updateSteeringWheel(angle) {
 
 function updateSuspension(fl, fr, rl, rr) {
     if (fl !== null && fl !== undefined) {
-        // Normalize to percentage (assuming range 0.3-0.4m)
-        const frontPercent = ((fl - 0.3) / 0.1) * 100;
+        // Normalize to percentage (assuming range 0-12 cm)
+        const frontPercent = ((fl * 100) / 12) * 100;
         document.getElementById('susp-fl-fill').style.height = Math.max(0, Math.min(100, frontPercent)) + '%';
-        document.getElementById('susp-fl-value').textContent = formatValue(fl, 3) + 'm';
+        document.getElementById('susp-fl-value').textContent = formatValue(fl * 100, 2) + 'cm';
     }
 
     if (rl !== null && rl !== undefined) {
-        // Normalize to percentage (assuming range 0.3-0.4m)
-        const rearPercent = ((rl - 0.3) / 0.1) * 100;
+        // Normalize to percentage (assuming range 0-12 cm)
+        const rearPercent = ((rl * 100) / 12) * 100;
         document.getElementById('susp-rl-fill').style.height = Math.max(0, Math.min(100, rearPercent)) + '%';
-        document.getElementById('susp-rl-value').textContent = formatValue(rl, 3) + 'm';
+        document.getElementById('susp-rl-value').textContent = formatValue(rl * 100, 2) + 'cm';
     }
 
     if (fr !== null && fr !== undefined) {
-        // Normalize to percentage (assuming range 0.3-0.4m)
-        const frontRightPercent = ((fr - 0.3) / 0.1) * 100;
+        // Normalize to percentage (assuming range 0-12 cm)
+        const frontRightPercent = ((fr * 100) / 12) * 100;
         document.getElementById('susp-fr-fill').style.height = Math.max(0, Math.min(100, frontRightPercent)) + '%';
-        document.getElementById('susp-fr-value').textContent = formatValue(fr, 3) + 'm';
+        document.getElementById('susp-fr-value').textContent = formatValue(fr * 100, 2) + 'cm';
     }
 
     if (rr !== null && rr !== undefined) {
-        // Normalize to percentage (assuming range 0.3-0.4m)
-        const rearRightPercent = ((rr - 0.3) / 0.1) * 100;
+        // Normalize to percentage (assuming range 0-12 cm)
+        const rearRightPercent = ((rr * 100) / 12) * 100;
         document.getElementById('susp-rr-fill').style.height = Math.max(0, Math.min(100, rearRightPercent)) + '%';
-        document.getElementById('susp-rr-value').textContent = formatValue(rr, 3) + 'm';
+        document.getElementById('susp-rr-value').textContent = formatValue(rr * 100, 2) + 'cm';
     }
 }
 
