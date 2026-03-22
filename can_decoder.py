@@ -245,26 +245,26 @@ class CANDecoder:
         self.data_store['gps']['status'] = decoded.get('Status')
 
     def decode_velocity_x(self, decoded):
-        self.data_store['velocity']['linear_x'] = decoded.get('Vx') / 1000.0
+        self.data_store['velocity']['linear_x'] = decoded.get('Vx')
 
     def decode_velocity_y(self, decoded):
-        self.data_store['velocity']['linear_y'] = decoded.get('Vy') / 1000.0
+        self.data_store['velocity']['linear_y'] = decoded.get('Vy')
 
     def decode_velocity_z(self, decoded):
-        self.data_store['velocity']['linear_z'] = decoded.get('Vz') / 1000.0
+        self.data_store['velocity']['linear_z'] = decoded.get('Vz')
 
     def decode_angular_x(self, decoded):
-        self.data_store['velocity']['angular_x'] = decoded.get('Gx') / 1000.0
+        self.data_store['velocity']['angular_x'] = decoded.get('Gx')
 
     def decode_angular_y(self, decoded):
-        self.data_store['velocity']['angular_y'] = decoded.get('Gy') / 1000.0
+        self.data_store['velocity']['angular_y'] = decoded.get('Gy')
 
     def decode_angular_z(self, decoded):
-        self.data_store['velocity']['angular_z'] = decoded.get('Gz') / 1000.0
+        self.data_store['velocity']['angular_z'] = decoded.get('Gz')
 
     def decode_velocity_magnitude(self, decoded):
-        self.data_store['velocity']['magnitude'] = decoded.get('Velocity') / 1000.0
-        self.data_store['velocity']['speed_kmh'] = decoded.get('Velocity') / 1000.0 * 3.6
+        self.data_store['velocity']['magnitude'] = decoded.get('Velocity')
+        self.data_store['velocity']['speed_kmh'] = decoded.get('Velocity') * 3.6
 
     def decode_distance(self, data):
         if len(data) >= 4:

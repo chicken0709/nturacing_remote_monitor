@@ -171,25 +171,25 @@ BO_ 1025 RTK_Extended: 4 RTK
    SG_ Status : 16|8@1- (1,0) [0|1] "m" VCU
 
 BO_ 1026 RTK_Vx: 4 RTK
-   SG_ Vx : 0|32@1- (1,0) [0|1] "" VCU
+   SG_ Vx : 0|32@1- (0.001,0) [0|1] "" VCU
 
 BO_ 1028 RTK_Vz: 4 RTK
-   SG_ Vz : 0|32@1- (1,0) [0|1] "" VCU
+   SG_ Vz : 0|32@1- (0.001,0) [0|1] "" VCU
 
 BO_ 1027 RTK_Vy: 4 RTK
-   SG_ Vy : 0|32@1- (1,0) [0|1] "" VCU
+   SG_ Vy : 0|32@1- (0.001,0) [0|1] "" VCU
 
 BO_ 1029 RTK_Gx: 4 RTK
-   SG_ Gx : 0|32@1- (1,0) [0|1] "" VCU
+   SG_ Gx : 0|32@1- (0.001,0) [0|1] "" VCU
 
 BO_ 1030 RTK_Gy: 4 RTK
-   SG_ Gy : 0|32@1- (1,0) [0|1] "" Vector__XXX
+   SG_ Gy : 0|32@1- (0.001,0) [0|1] "" Vector__XXX
 
 BO_ 1031 RTK_Gz: 4 RTK
-   SG_ Gz : 0|32@1- (1,0) [0|1] "" VCU
+   SG_ Gz : 0|32@1- (0.001,0) [0|1] "" VCU
 
 BO_ 1032 RTK_Mag: 4 RTK
-   SG_ Velocity : 0|32@1- (1,0) [0|1] "mm/s" VCU
+   SG_ Velocity : 0|32@1- (0.001,0) [0|1] "m/s" VCU
 
 BO_ 389 acc_lsm06: 8 IMU_RPI
    SG_ a_x : 0|16@1- (0.001,0) [0|1] "m/s^2" IMU_RPI
