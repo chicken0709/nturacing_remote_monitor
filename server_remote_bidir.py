@@ -419,7 +419,9 @@ async def switch_to_realtime():
     
     # clear data buffer
     print("🧹 Clearing data buffer before switching to realtime mode...")
-    can_server.data_store = can_server.decoder.create_empty_data_store()
+    new_data_store = can_server.decoder.create_empty_data_store()
+    can_server.data_store = new_data_store
+    can_server.decoder.data_store = new_data_store
     print("✅ Data buffer cleared")
     
     message_dict = {'type': 'switch_realtime'}
