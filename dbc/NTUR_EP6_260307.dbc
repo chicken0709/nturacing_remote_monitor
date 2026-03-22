@@ -206,15 +206,10 @@ BO_ 645 gyro: 8 IMU_RPI
    SG_ g_y : 16|16@1- (0.1,0) [0|1] "deg/s" Vector__XXX
    SG_ g_z : 32|16@1- (0.1,0) [0|1] "deg/s" Vector__XXX
 
-BO_ 1064 euler: 8 IMU_RPI
-   SG_ Roll : 0|16@1- (0.01,0) [0|1] "。" Vector__XXX
-   SG_ Pitch : 16|16@1- (0.01,0) [0|1] "。" Vector__XXX
-   SG_ Yaw : 32|16@1- (0.01,0) [0|1] "。" Vector__XXX
-
 BO_ 1065 mag: 8 IMU_RPI
-   SG_ m_x : 0|16@1- (1,0) [0|1] "uT" Vector__XXX
-   SG_ m_y : 16|16@1- (1,0) [0|1] "uT" Vector__XXX
-   SG_ m_z : 32|16@1- (1,0) [0|1] "uT" Vector__XXX
+   SG_ m_x : 0|16@1- (0.1,0) [0|1] "uT" Vector__XXX
+   SG_ m_y : 16|16@1- (0.1,0) [0|1] "uT" Vector__XXX
+   SG_ m_z : 32|16@1- (0.1,0) [0|1] "uT" Vector__XXX
 
 BO_ 897 SUSP_sensors: 8 VCU
    SG_ SUSP_FL : 0|16@1- (0.0001,0.3) [0|100] "m" Vector__XXX
@@ -237,6 +232,11 @@ BO_ 1812 Heartbeat: 1 INV4
 BO_ 1843 PID_Feedback: 1 INV3
 
 BO_ 1844 PID_Feedback: 1 INV4
+
+BO_ 901 euler: 8 IMU_RPI
+   SG_ roll : 0|16@1- (0.01,0) [0|1] "。" Vector__XXX
+   SG_ pitch : 16|16@1- (0.01,0) [0|1] "。" Vector__XXX
+   SG_ yaw : 32|16@1- (0.01,0) [0|1] "。" Vector__XXX
 
 BA_DEF_ BO_ "GenMsgBackgroundColor" STRING ;
 BA_DEF_ BO_ "GenMsgForegroundColor" STRING ;
@@ -328,7 +328,6 @@ BA_ "GenMsgForegroundColor" BO_ 1062 "#000000";
 BA_ "GenMsgBackgroundColor" BO_ 1062 "#55aaff";
 BA_ "GenMsgForegroundColor" BO_ 645 "#000000";
 BA_ "GenMsgBackgroundColor" BO_ 645 "#55aaff";
-BA_ "GenMsgBackgroundColor" BO_ 1064 "#55aaff";
 BA_ "GenMsgForegroundColor" BO_ 1065 "#000000";
 BA_ "GenMsgBackgroundColor" BO_ 1065 "#55aaff";
 BA_ "GenMsgForegroundColor" BO_ 897 "#000000";

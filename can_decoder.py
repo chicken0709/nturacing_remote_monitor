@@ -61,10 +61,10 @@ CAN_MESSAGE_CONFIG = {
     0x213: ("inverters", "decode_inverter_control", "raw"),
     0x214: ("inverters", "decode_inverter_control", "raw"),
     # imu
-    0x185: ("imu", "decode_imu_accel_km6", "raw"),
+    0x185: ("imu", "decode_imu_accel_km6", "decoded"),
     0x426: ("imu", "decode_imu_accel_km308", "decoded"),
-    0x285: ("imu", "decode_imu_gyro", "raw"),
-    0x385: ("imu", "decode_imu_euler", "raw"),
+    0x285: ("imu", "decode_imu_gyro", "decoded"),
+    0x385: ("imu", "decode_imu_euler", "decoded"),
     0x429: ("imu", "decode_imu_mag", "decoded"),
     # imu2
     0x188: ("imu2", "decode_imu2_accel", "decoded"),
@@ -374,45 +374,30 @@ class CANDecoder:
             self.data_store['inverters'][inv_num]['control_word'] = control_word
             self.data_store['inverters'][inv_num]['target_torque'] = target_torque
 
-    def decode_imu_accel_km6(self, data):
-        if len(data) >= 6:
-            x_raw = struct.unpack('<h', data[0:2])[0]
-            y_raw = struct.unpack('<h', data[2:4])[0]
-            z_raw = struct.unpack('<h', data[4:6])[0]
-            
-            self.data_store['imu']['accel_km6']['x'] = x_raw * 0.001
-            self.data_store['imu']['accel_km6']['y'] = y_raw * 0.001
-            self.data_store['imu']['accel_km6']['z'] = z_raw * 0.001
+    def decode_imu_accel_km6(self, decoded):
+        self.data_store['imu']['accel_km6']['x'] = decoded.get('a_x')
+        self.data_store['imu']['accel_km6']['y'] = decoded.get('a_y')
+        self.data_store['imu']['accel_km6']['z'] = decoded.get('a_z')
 
     def decode_imu_accel_km308(self, decoded):
         self.data_store['imu']['accel_km308']['x'] = decoded.get('a_x')
         self.data_store['imu']['accel_km308']['y'] = decoded.get('a_y')
         self.data_store['imu']['accel_km308']['z'] = decoded.get('a_z')
 
-    def decode_imu_gyro(self, data):
-        if len(data) >= 6:
-            x_raw = struct.unpack('<h', data[0:2])[0]
-            y_raw = struct.unpack('<h', data[2:4])[0]
-            z_raw = struct.unpack('<h', data[4:6])[0]
-            
-            self.data_store['imu']['gyro']['x'] = x_raw * 0.1
-            self.data_store['imu']['gyro']['y'] = y_raw * 0.1
-            self.data_store['imu']['gyro']['z'] = z_raw * 0.1
+    def decode_imu_gyro(self, decoded):
+        self.data_store['imu']['gyro']['x'] = decoded.get('g_x')
+        self.data_store['imu']['gyro']['y'] = decoded.get('g_y')
+        self.data_store['imu']['gyro']['z'] = decoded.get('g_z')
 
-    def decode_imu_euler(self, data):
-        if len(data) >= 6:
-            roll_raw = struct.unpack('<h', data[0:2])[0]
-            pitch_raw = struct.unpack('<h', data[2:4])[0]
-            yaw_raw = struct.unpack('<h', data[4:6])[0]
-            
-            self.data_store['imu']['euler']['roll'] = roll_raw * 0.01
-            self.data_store['imu']['euler']['pitch'] = pitch_raw * 0.01
-            self.data_store['imu']['euler']['yaw'] = yaw_raw * 0.01
+    def decode_imu_euler(self, decoded):
+        self.data_store['imu']['euler']['roll'] = decoded.get('roll')
+        self.data_store['imu']['euler']['pitch'] = decoded.get('pitch')
+        self.data_store['imu']['euler']['yaw'] = decoded.get('yaw')
 
     def decode_imu_mag(self, decoded):
-        self.data_store['imu']['mag']['x'] = decoded.get('m_x') * 0.1
-        self.data_store['imu']['mag']['y'] = decoded.get('m_y') * 0.1
-        self.data_store['imu']['mag']['z'] = decoded.get('m_z') * 0.1
+        self.data_store['imu']['mag']['x'] = decoded.get('m_x')
+        self.data_store['imu']['mag']['y'] = decoded.get('m_y')
+        self.data_store['imu']['mag']['z'] = decoded.get('m_z')
 
     def decode_imu2_accel(self, decoded):
         self.data_store['imu2']['accel']['x'] = decoded.get('a_x_1')
