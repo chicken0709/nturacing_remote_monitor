@@ -52,7 +52,6 @@ class RemoteCANServer:
         
         # Initialize CAN decoder
         self.decoder = CANDecoder()
-        self.data_store = self.decoder.data_store
 
         self.message_count = 0
         self.message_handlers = {
@@ -212,16 +211,17 @@ class RemoteCANServer:
     
     def get_broadcast_data(self):
         # prepare data for broadcasting to web clients
+        data = self.decoder.data_store
         return {
-            'timestamp': self.data_store['timestamp']['time'].isoformat() if self.data_store['timestamp']['time'] else None,
-            'gps': self.data_store['gps'],
-            'velocity': self.data_store['velocity'],
-            'distance': self.data_store['distance'],
-            'accumulator': self.data_store['accumulator'],
-            'inverters': self.data_store['inverters'],
-            'vcu': self.data_store['vcu'],
-            'imu': self.data_store['imu'],
-            'imu2': self.data_store['imu2'],
+            'timestamp': data['timestamp']['time'].isoformat() if data['timestamp']['time'] else None,
+            'gps': data['gps'],
+            'velocity': data['velocity'],
+            'distance': data['distance'],
+            'accumulator': data['accumulator'],
+            'inverters': data['inverters'],
+            'vcu': data['vcu'],
+            'imu': data['imu'],
+            'imu2': data['imu2'],
             'message_count': self.message_count,
             'update_time': datetime.now().isoformat(),
             'vehicle_clients': len(vehicle_clients),
@@ -419,9 +419,7 @@ async def switch_to_realtime():
     
     # clear data buffer
     print("🧹 Clearing data buffer before switching to realtime mode...")
-    new_data_store = can_server.decoder.create_empty_data_store()
-    can_server.data_store = new_data_store
-    can_server.decoder.data_store = new_data_store
+    can_server.decoder.reset_data_store()
     print("✅ Data buffer cleared")
     
     message_dict = {'type': 'switch_realtime'}

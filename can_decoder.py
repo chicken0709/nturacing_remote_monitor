@@ -169,6 +169,11 @@ class CANDecoder:
             }
         }
 
+    def reset_data_store(self):
+        new_data_store = self.create_empty_data_store()
+        self.data_store.clear()
+        self.data_store.update(new_data_store)
+        
     def decode_can_message(self, msg):
         can_id = msg.arbitration_id
         data = msg.data
