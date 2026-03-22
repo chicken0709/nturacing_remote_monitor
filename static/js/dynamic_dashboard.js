@@ -1735,55 +1735,39 @@ class NTURTDashboard {
         const statusList = document.getElementById('vcu-list');
         if (!statusList) return;
         
-        const status = vcu.status;
+        const statusNames = vcu.status;
         
-        // Define status bit flags
-        const STATUS_FLAGS = {
-            STATE_READY: 1 << 0,
-            STATE_RTD_BLINK: 1 << 1,
-            STATE_RTD_STEADY: 1 << 2,
-            STATE_RTD_READY: 1 << 3,
-            STATE_RTD_SOUND: 1 << 4,
-            STATE_RUNNING: 1 << 5,
-            STATE_RUNNING_OK: 1 << 6,
-            STATE_RUNNING_ERROR: 1 << 7,
-            STATE_ERROR: 1 << 8
-        };
-        
-        // Decode active states
+        // Process status names
         const activeStates = [];
-        let hasError = (status & (STATUS_FLAGS.STATE_ERROR | STATUS_FLAGS.STATE_RUNNING_ERROR)) !== 0;
+        let hasError = false;
         
-        if (status === null || status === undefined) {
-            activeStates.push({ name: 'N/A', emoji: '❓', color: 'text-slate-400' });
-        } else if (status === 0) {
-            activeStates.push({ name: 'INVALID', emoji: '❌', color: 'text-red-400' });
-            hasError = true;
-        } else {
-            for (const [flagName, flagBit] of Object.entries(STATUS_FLAGS)) {
-                if ((status & flagBit) !== 0) {
-                    const displayName = flagName.replace('STATE_', '');
-                    let emoji = '⚪';
-                    let color = 'text-slate-400';
-                    
-                    if (displayName.includes('ERROR')) {
-                        emoji = '🔴';
-                        color = 'text-red-400';
-                        hasError = true;
-                    } else if (displayName.includes('RUNNING')) {
-                        emoji = '🟢';
-                        color = 'text-green-400';
-                    } else if (displayName.includes('RTD')) {
-                        emoji = '🟡';
-                        color = 'text-yellow-400';
-                    } else if (displayName === 'READY') {
-                        emoji = '🟢';
-                        color = 'text-green-400';
-                    }
-                    
-                    activeStates.push({ name: displayName, emoji, color });
+        if (!statusNames || statusNames.length === 0) {
+            activeStates.push({ name: 'No Status', emoji: '❓', color: 'text-red-400' });
+        } else if (Array.isArray(statusNames)) {
+            statusNames.forEach(flagName => {
+                const displayName = flagName.replace('STATE_', '');
+                let emoji = '⚪';
+                let color = 'text-slate-400';
+                
+                if (displayName.includes('ERROR')) {
+                    emoji = '🔴';
+                    color = 'text-red-400';
+                    hasError = true;
+                } else if (displayName.includes('RUNNING')) {
+                    emoji = '🟢';
+                    color = 'text-green-400';
+                } else if (displayName.includes('RTD')) {
+                    emoji = '🟡';
+                    color = 'text-yellow-400';
+                } else if (displayName === 'READY') {
+                    emoji = '🟢';
+                    color = 'text-green-400';
                 }
-            }
+                
+                activeStates.push({ name: displayName, emoji, color });
+            });
+        } else {
+            activeStates.push({ name: 'Invalid Format', emoji: '❓', color: 'text-slate-400' });
         }
         
         // Display in list

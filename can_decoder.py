@@ -72,6 +72,19 @@ CAN_MESSAGE_CONFIG = {
     0x488: ("imu2", "decode_imu2_quaternion", "decoded"),
 }
 
+# VCU status bit flags
+STATUS_FLAGS = {
+    "STATE_READY": 1 << 0,
+    "STATE_RTD_BLINK": 1 << 1,
+    "STATE_RTD_STEADY": 1 << 2,
+    "STATE_RTD_READY": 1 << 3,
+    "STATE_RTD_SOUND": 1 << 4,
+    "STATE_RUNNING": 1 << 5,
+    "STATE_RUNNING_OK": 1 << 6,
+    "STATE_RUNNING_ERROR": 1 << 7,
+    "STATE_ERROR": 1 << 8
+}
+
 # suppress cantools warnings about overwriting messages when loading dbc
 logging.getLogger("cantools").setLevel(logging.ERROR)
 
@@ -228,7 +241,8 @@ class CANDecoder:
 
     def decode_vcu_status(self, data):
         if len(data) < 2: return
-        self.data_store['vcu']['status'] = struct.unpack('<H', data[0:2])[0]
+        status = struct.unpack('<H', data[0:2])[0]
+        self.data_store['vcu']['status'] = [statusName for statusName, flag in STATUS_FLAGS.items() if status & flag]
 
     def decode_vcu_suspension(self, decoded):
         self.data_store['vcu']['suspFL'] = decoded.get('SUSP_FL')
