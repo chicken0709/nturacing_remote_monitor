@@ -163,8 +163,8 @@ BO_ 904 Euler_Angle: 6 IMU
    SG_ Y : 32|16@1- (1,0) [0|1] "deg" VCU
 
 BO_ 1024 RTK_Basic: 8 RTK
-   SG_ Latitude : 0|32@1- (1,0) [0|1] "N" Vector__XXX
-   SG_ Logitude : 32|32@1- (1,0) [0|1] "E" RTK
+   SG_ Latitude : 0|32@1- (1e-07,0) [0|1] "N" Vector__XXX
+   SG_ Longitude : 32|32@1- (1e-07,0) [0|1] "E" RTK
 
 BO_ 1025 RTK_Extended: 4 RTK
    SG_ Altitude : 0|16@1- (1,0) [0|1] "m" VCU

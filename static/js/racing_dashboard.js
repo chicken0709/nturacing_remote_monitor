@@ -463,7 +463,7 @@ function updateDisplay(data) {
     
     // Update VCU data
     if (data.vcu) {
-        document.getElementById('vcu-steer').textContent = formatValue(data.vcu.steer/10000, '°', 1);
+        document.getElementById('vcu-steer').textContent = formatValue(-data.vcu.steer, '°', 1); // invert steering angle for display
         document.getElementById('vcu-accel').textContent = formatValue(data.vcu.accel, '%', 0);
         document.getElementById('vcu-apps1').textContent = formatValue(data.vcu.apps1, '', 0);
         document.getElementById('vcu-apps2').textContent = formatValue(data.vcu.apps2, '', 0);

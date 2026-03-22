@@ -237,8 +237,8 @@ class CANDecoder:
         self.data_store['vcu']['suspRR'] = decoded.get('SUSP_RR')
 
     def decode_gps_basic(self, decoded):
-        self.data_store['gps']['lat'] = decoded.get('Latitude') / 1e7
-        self.data_store['gps']['lon'] = decoded.get('Logitude') / 1e7
+        self.data_store['gps']['lat'] = decoded.get('Latitude')
+        self.data_store['gps']['lon'] = decoded.get('Longitude')
 
     def decode_gps_extended(self, decoded):
         self.data_store['gps']['alt'] = decoded.get('Altitude')
