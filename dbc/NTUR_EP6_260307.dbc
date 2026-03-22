@@ -217,8 +217,10 @@ BO_ 1065 mag: 8 IMU_RPI
    SG_ m_z : 32|16@1- (1,0) [0|1] "uT" Vector__XXX
 
 BO_ 897 SUSP_sensors: 8 VCU
-   SG_ SUSP_F : 0|16@1- (0.1,0) [0|100] "mm" Vector__XXX
-   SG_ SUSP_R : 16|16@1- (0.1,0) [0|100] "mm" Vector__XXX
+   SG_ SUSP_FL : 0|16@1- (0.0001,0.3) [0|100] "m" Vector__XXX
+   SG_ SUSP_FR : 16|16@1- (0.0001,0.3) [0|100] "m" Vector__XXX
+   SG_ SUSP_RL : 32|16@1- (0.0001,0.3) [0|100] "m" Vector__XXX
+   SG_ SUSP_RR : 48|16@1- (0.0001,0.3) [0|100] "m" Vector__XXX
 
 BO_ 1160 Quaterneon: 8 IMU
    SG_ q_w : 0|16@1- (0.0001,0) [0|1] "" VCU
@@ -236,33 +238,6 @@ BO_ 1843 PID_Feedback: 1 INV3
 
 BO_ 1844 PID_Feedback: 1 INV4
 
-CM_ BU_ VCU "Vehicle controll unit";
-CM_ BU_ INV4 "inverter RR";
-CM_ BU_ INV3 "inverter RL";
-CM_ BU_ ACC_BMS "accumulator BMS";
-CM_ BO_ 404 "10 ms";
-CM_ BO_ 660 "100 ms";
-CM_ BO_ 916 "100 ms";
-CM_ BO_ 403 "10 ms";
-CM_ BO_ 659 "100 ms";
-CM_ BO_ 915 "100 ms";
-CM_ BO_ 532 "10 ms";
-CM_ BO_ 531 "10 ms";
-CM_ BO_ 1537 "1000 ms";
-CM_ BO_ 1617 "1000 ms";
-CM_ BO_ 1808 "100 ms";
-CM_ BO_ 1281 "200 ms";
-CM_ BO_ 1297 "200 ms";
-CM_ BO_ 641 "100 ms";
-CM_ BO_ 385 "10 ms";
-CM_ BO_ 1793 "100 ms";
-CM_ BO_ 386 "10 ms";
-CM_ BO_ 642 "10 ms";
-CM_ BO_ 1794 "100 ms";
-CM_ BO_ 392 "10 ms";
-CM_ BO_ 648 "10 ms";
-CM_ BO_ 904 "10 ms";
-CM_ BO_ 1160 "10 ms";
 BA_DEF_ BO_ "GenMsgBackgroundColor" STRING ;
 BA_DEF_ BO_ "GenMsgForegroundColor" STRING ;
 BA_DEF_ BO_ "matchingcriteria" INT 0 0;
@@ -305,12 +280,6 @@ BA_DEF_ BO_ "matchingcriteria" INT 0 0;
 BA_DEF_ BO_ "filterlabeling" INT 0 0;
 BA_DEF_ BO_ "matchingcriteria" INT 0 0;
 BA_DEF_ BO_ "filterlabeling" INT 0 0;
-BA_DEF_DEF_ "GenMsgBackgroundColor" "#ffffff";
-BA_DEF_DEF_ "GenMsgForegroundColor" "#1a1a1a";
-BA_DEF_DEF_ "matchingcriteria" 0;
-BA_DEF_DEF_ "filterlabeling" 0;
-BA_DEF_DEF_ "matchingcriteria" 0;
-BA_DEF_DEF_ "filterlabeling" 1;
 BA_ "GenMsgForegroundColor" BO_ 404 "#000000";
 BA_ "GenMsgBackgroundColor" BO_ 404 "#ffff7f";
 BA_ "GenMsgForegroundColor" BO_ 660 "#550000";
@@ -366,6 +335,37 @@ BA_ "GenMsgForegroundColor" BO_ 897 "#000000";
 BA_ "GenMsgForegroundColor" BO_ 1160 "#ffffff";
 BA_ "GenMsgBackgroundColor" BO_ 1160 "#5500ff";
 BA_ "GenMsgForegroundColor" BO_ 1843 "#000000";
+BA_DEF_DEF_ "GenMsgBackgroundColor" "#ffffff";
+BA_DEF_DEF_ "GenMsgForegroundColor" "#1a1a1a";
+BA_DEF_DEF_ "matchingcriteria" 0;
+BA_DEF_DEF_ "filterlabeling" 1;
+CM_ BU_ VCU "Vehicle controll unit";
+CM_ BU_ INV4 "inverter RR";
+CM_ BU_ INV3 "inverter RL";
+CM_ BU_ ACC_BMS "accumulator BMS";
+CM_ BO_ 404 "10 ms";
+CM_ BO_ 660 "100 ms";
+CM_ BO_ 916 "100 ms";
+CM_ BO_ 403 "10 ms";
+CM_ BO_ 659 "100 ms";
+CM_ BO_ 915 "100 ms";
+CM_ BO_ 532 "10 ms";
+CM_ BO_ 531 "10 ms";
+CM_ BO_ 1537 "1000 ms";
+CM_ BO_ 1617 "1000 ms";
+CM_ BO_ 1808 "100 ms";
+CM_ BO_ 1281 "200 ms";
+CM_ BO_ 1297 "200 ms";
+CM_ BO_ 641 "100 ms";
+CM_ BO_ 385 "10 ms";
+CM_ BO_ 1793 "100 ms";
+CM_ BO_ 386 "10 ms";
+CM_ BO_ 642 "10 ms";
+CM_ BO_ 1794 "100 ms";
+CM_ BO_ 392 "10 ms";
+CM_ BO_ 648 "10 ms";
+CM_ BO_ 904 "10 ms";
+CM_ BO_ 1160 "10 ms";
 VAL_ 404 INV_STATUS 1 "STATUS_READY" 2 "STATUS_ENABLED" 4 "STATUS_FAULT";
 VAL_ 403 INV_STATUS 1 "STATUS_READY" 2 "STATUS_ENABLED" 4 "STATUS_FAULT";
 VAL_ 512 CTRL_TWEEK_SELECT 1 "PQ" 2 "IQ" 17 "PD" 18 "ID";

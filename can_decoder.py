@@ -133,7 +133,7 @@ class CANDecoder:
             'vcu': {
                 'steer': None, 'accel': None, 'apps1': None,    
                 'apps2': None, 'brake': None, 'bse1': None, 'bse2': None,
-                'suspF': None, 'suspR': None,
+                'suspFL': None, 'suspFR': None, 'suspRL': None, 'suspRR': None,
                 'status': None,
                 'last_update': None},
             'imu': {
@@ -191,6 +191,8 @@ class CANDecoder:
                     handler(data)
                 elif param_type == "decoded":
                     handler(decoded)
+                elif param_type == "both":
+                    handler(data, decoded)
 
             # update last_update time
             if subsystem is None:
@@ -216,7 +218,7 @@ class CANDecoder:
         self.data_store['timestamp']['time'] = decoded_time
 
     def decode_vcu_cockpit(self, decoded):
-        self.data_store['vcu']['steer'] = decoded.get('Steer') * 10000
+        self.data_store['vcu']['steer'] = decoded.get('Steer')
         self.data_store['vcu']['accel'] = decoded.get('Accel')
         self.data_store['vcu']['apps1'] = decoded.get('APPS1')
         self.data_store['vcu']['apps2'] = decoded.get('APPS2')
@@ -228,9 +230,11 @@ class CANDecoder:
         if len(data) < 2: return
         self.data_store['vcu']['status'] = struct.unpack('<H', data[0:2])[0]
 
-    def decode_vcu_suspension(self, decoded):                    
-        self.data_store['vcu']['suspF'] = decoded.get('SUSP_F') * 0.001 + 0.3
-        self.data_store['vcu']['suspR'] = decoded.get('SUSP_R') * 0.001 + 0.3
+    def decode_vcu_suspension(self, decoded):
+        self.data_store['vcu']['suspFL'] = decoded.get('SUSP_FL')
+        self.data_store['vcu']['suspFR'] = decoded.get('SUSP_FR')
+        self.data_store['vcu']['suspRL'] = decoded.get('SUSP_RL')
+        self.data_store['vcu']['suspRR'] = decoded.get('SUSP_RR')
 
     def decode_gps_basic(self, decoded):
         self.data_store['gps']['lat'] = decoded.get('Latitude') / 1e7

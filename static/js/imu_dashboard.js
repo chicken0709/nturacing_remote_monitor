@@ -236,24 +236,39 @@ function formatValue(value, decimals = 3) {
 function updateSteeringWheel(angle) {
     if (angle !== null && angle !== undefined) {
         const wheel = document.getElementById('steering-wheel');
-        const rotation = angle / -10000; // Assuming angle is in units that need scaling
+        const rotation = -angle; // Invert angle for correct visual direction
         wheel.style.transform = `rotate(${rotation}deg)`;
         document.getElementById('steering-angle').textContent = formatValue(rotation, 1) + '°';
     }
 }
 
-function updateSuspension(front, rear) {
-    if (front !== null && front !== undefined) {
+function updateSuspension(fl, fr, rl, rr) {
+    if (fl !== null && fl !== undefined) {
         // Normalize to percentage (assuming range 0.3-0.4m)
-        const frontPercent = ((front - 0.3) / 0.1) * 100;
-        document.getElementById('susp-front-fill').style.height = Math.max(0, Math.min(100, frontPercent)) + '%';
-        document.getElementById('susp-front-value').textContent = formatValue(front, 3) + 'm';
+        const frontPercent = ((fl - 0.3) / 0.1) * 100;
+        document.getElementById('susp-fl-fill').style.height = Math.max(0, Math.min(100, frontPercent)) + '%';
+        document.getElementById('susp-fl-value').textContent = formatValue(fl, 3) + 'm';
     }
-    
-    if (rear !== null && rear !== undefined) {
-        const rearPercent = ((rear - 0.3) / 0.1) * 100;
-        document.getElementById('susp-rear-fill').style.height = Math.max(0, Math.min(100, rearPercent)) + '%';
-        document.getElementById('susp-rear-value').textContent = formatValue(rear, 3) + 'm';
+
+    if (rl !== null && rl !== undefined) {
+        // Normalize to percentage (assuming range 0.3-0.4m)
+        const rearPercent = ((rl - 0.3) / 0.1) * 100;
+        document.getElementById('susp-rl-fill').style.height = Math.max(0, Math.min(100, rearPercent)) + '%';
+        document.getElementById('susp-rl-value').textContent = formatValue(rl, 3) + 'm';
+    }
+
+    if (fr !== null && fr !== undefined) {
+        // Normalize to percentage (assuming range 0.3-0.4m)
+        const frontRightPercent = ((fr - 0.3) / 0.1) * 100;
+        document.getElementById('susp-fr-fill').style.height = Math.max(0, Math.min(100, frontRightPercent)) + '%';
+        document.getElementById('susp-fr-value').textContent = formatValue(fr, 3) + 'm';
+    }
+
+    if (rr !== null && rr !== undefined) {
+        // Normalize to percentage (assuming range 0.3-0.4m)
+        const rearRightPercent = ((rr - 0.3) / 0.1) * 100;
+        document.getElementById('susp-rr-fill').style.height = Math.max(0, Math.min(100, rearRightPercent)) + '%';
+        document.getElementById('susp-rr-value').textContent = formatValue(rr, 3) + 'm';
     }
 }
 
@@ -377,7 +392,7 @@ ws.onmessage = function(event) {
     // Update VCU data
     if (data.vcu) {
         updateSteeringWheel(data.vcu.steer);
-        updateSuspension(data.vcu.suspF, data.vcu.suspR);
+        updateSuspension(data.vcu.suspFL, data.vcu.suspFR, data.vcu.suspRL, data.vcu.suspRR);
     }
 };
 
