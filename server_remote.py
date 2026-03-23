@@ -52,6 +52,7 @@ class RemoteCANServer:
         # Initialize CAN decoder
         self.decoder = CANDecoder()
 
+        self.mode_switch_completed = True
         self.message_count = 0
         self.message_handlers = {
             'can_message': 'handle_single_can_message',
@@ -118,6 +119,9 @@ class RemoteCANServer:
                 del vehicle_clients[client_id]
 
     async def handle_single_can_message(self, data, client_id):
+        # ignore CAN messages if mode switch not completed
+        if not self.mode_switch_completed: return
+    
         # handle single CAN message (backward compatibility)
         can_id = data['can_id']
         can_data = bytes(data['data'])
@@ -168,6 +172,8 @@ class RemoteCANServer:
         # mode change notification
         print(f"Mode changed to: {data.get('mode')} for {client_id}")
         vehicle_clients[client_id]['mode'] = data.get('mode')
+
+        self.mode_switch_completed = True
         
         await self.broadcast_to_web_clients({
             'type': 'mode_changed',
@@ -214,8 +220,7 @@ class RemoteCANServer:
 
     async def broadcast_to_web_clients(self, data):
         # broadcast data to all web clients
-        if not web_connections:
-            return
+        if not web_connections: return
         
         # send data and remove disconnected clients
         disconnected = []
@@ -365,6 +370,7 @@ async def select_csv_file(request: Request):
     # select CSV file for playback
     if not can_server: return {'error': 'CAN server not initialized'}
     can_server.message_count = 0
+    can_server.mode_switch_completed = False
 
     data = await request.json()
     filename = data.get('filename')
@@ -383,6 +389,7 @@ async def switch_to_realtime():
     # switch back to realtime mode and clear data buffer
     if not can_server: return {'error': 'CAN server not initialized'}
     can_server.message_count = 0
+    can_server.mode_switch_completed = False
     
     # clear data buffer
     print("🧹 Clearing data buffer before switching to realtime mode...")

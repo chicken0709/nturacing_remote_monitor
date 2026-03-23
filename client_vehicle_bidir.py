@@ -691,11 +691,18 @@ class CANDataClient:
                     self.mode = 'realtime'
                     self.csv_file = None
                     self.csv_paused = False
+
+                    # # 1. Clear the hardware/software buffers
+                    self.flush_message_queue() 
+                    
+                    # 2. Small sleep to let any 'in-thread' executions finish
+                    await asyncio.sleep(0.05) 
                     
                     await self.websocket.send(json.dumps({
                         'type': 'mode_changed',
                         'mode': 'realtime'
                     }))
+                    # print("✅ Backlog purged and Server notified.")
                 
                 elif cmd_type == 'csv_pause':
                     # 暫停/恢復CSV回放
@@ -793,6 +800,21 @@ class CANDataClient:
                 print(f"Error in command receiver: {e}")
                 await asyncio.sleep(0.1)
     
+    def flush_message_queue(self):
+        """Purge the queue synchronously to avoid event loop naming conflicts"""
+        flushed_count = 0
+        # 1. Empty the queue
+        try:
+            while not self.message_queue.empty():
+                self.message_queue.get_nowait()
+                flushed_count += 1
+        except Exception as e:
+            print(f"Note: Queue empty during flush: {e}")
+
+        # 2. Clear the cache (If you use a lock, you need a task)
+        self.latest_messages.clear()
+        print(f"🧹 Flushed {flushed_count} messages.")
+
     async def heartbeat_loop(self):
         """心跳循环"""
         while self.running:
