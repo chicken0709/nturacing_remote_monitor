@@ -5,4 +5,4 @@
 cd /home/pi/Desktop/GUI_SC-dev
 
 # start server
-python3 server_remote_bidir.py
+python3 server_remote.py

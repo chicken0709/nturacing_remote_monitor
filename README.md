@@ -81,19 +81,25 @@
     # [Install]
     # WantedBy=multi-user.target
     
-    Server side: /etc/systemd/system/can-server.service
+    Server side: /etc/systemd/system/nturt-server.service
     
     # [Unit]
-    # Description=CAN Data Server
+    # Description=NTURT CAN Monitor Server - Remote Side
     # After=network.target
-    #
+
     # [Service]
     # Type=simple
     # User=pi
-    # WorkingDirectory=/home/pi/GUI-dev
-    # ExecStart=/usr/bin/python3 /home/pi/GUI-dev/server_remote_bidir.py
+    # WorkingDirectory=/home/pi/Desktop/GUI_SC-dev
+    # ExecStart=/usr/bin/python3 /home/pi/Desktop/GUI_SC-dev/server_remote.py
     # Restart=always
-    #
+    # RestartSec=10
+    # StandardOutput=journal
+    # StandardError=journal
+
+    # # Enviromental variables
+    # Environment="PYTHONUNBUFFERED=1"
+
     # [Install]
     # WantedBy=multi-user.target
     
