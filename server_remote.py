@@ -157,7 +157,7 @@ class RemoteCANServer:
         
         # broadcast to all web clients
         print(f"[DEBUG] Broadcasting to {len(web_connections)} web clients")
-        await self.broadcast_to_web({
+        await self.broadcast_to_web_clients({
             'type': 'csv_files',
             'files': data.get('files', []),
             'client_id': client_id
@@ -169,7 +169,7 @@ class RemoteCANServer:
         print(f"Mode changed to: {data.get('mode')} for {client_id}")
         vehicle_clients[client_id]['mode'] = data.get('mode')
         
-        await self.broadcast_to_web({
+        await self.broadcast_to_web_clients({
             'type': 'mode_changed',
             'mode': data.get('mode'),
             'file': data.get('file'),
@@ -179,7 +179,7 @@ class RemoteCANServer:
     async def handle_csv_status(self, data, client_id):
         # CSV playback status update
         print(f"CSV status: {data.get('status')}")
-        await self.broadcast_to_web({
+        await self.broadcast_to_web_clients({
             'type': 'csv_status',
             'status': data.get('status'),
             'message': data.get('message')
@@ -187,7 +187,7 @@ class RemoteCANServer:
 
     async def handle_csv_progress(self, data, client_id):
         # CSV playback progress update
-        await self.broadcast_to_web({
+        await self.broadcast_to_web_clients({
             'type': 'csv_progress',
             'percentage': data.get('percentage', 0),
             'current_time': data.get('current_time', 0),
@@ -199,7 +199,7 @@ class RemoteCANServer:
     async def handle_error(self, data, client_id):
         # error messages from client
         print(f"Error from client: {data.get('message')}")
-        await self.broadcast_to_web({
+        await self.broadcast_to_web_clients({
             'type': 'error',
             'message': data.get('message')
         })
@@ -212,18 +212,19 @@ class RemoteCANServer:
         # prepare data for broadcasting to web clients
         return self.decoder.get_broadcast_data(vehicle_clients, self.message_count, self.vehicle_connected, self.last_data_time)
 
-    async def broadcast_to_web(self, data):
+    async def broadcast_to_web_clients(self, data):
         # broadcast data to all web clients
         if not web_connections:
             return
         
+        # send data and remove disconnected clients
         disconnected = []
         for websocket in web_connections:
             try:
                 await websocket.send_json(data)
             except:
                 disconnected.append(websocket)
-        
+
         for ws in disconnected:
             if ws in web_connections:
                 web_connections.remove(ws)
@@ -232,30 +233,10 @@ class RemoteCANServer:
         # broadcast data to web clients periodically
         while True:
             if web_connections:
-                await self.broadcast_data()
+                self.check_vehicle_connection()
+                await self.broadcast_to_web_clients(self.get_broadcast_data())
             await asyncio.sleep(0.05)  # 20 FPS
 
-    async def broadcast_data(self):
-        # broadcast data to all web clients
-        if not web_connections:
-            return
-        
-        self.check_vehicle_connection()
-        broadcast_data = self.get_broadcast_data()
-        
-        # send to all web clients
-        disconnected = []
-        for websocket in web_connections:
-            try:
-                await websocket.send_text(json.dumps(broadcast_data))
-            except:
-                disconnected.append(websocket)
-        
-        # remove disconnected websockets
-        for ws in disconnected:
-            if ws in web_connections:
-                web_connections.remove(ws)
-    
     async def send_to_vehicle_client(self, message_dict, status_dict):
         # send message to vehicle client
         if not vehicle_clients:
@@ -331,7 +312,8 @@ async def websocket_endpoint(websocket: WebSocket):
     
     # Push data once when connected
     if can_server:
-        await can_server.broadcast_data()
+        can_server.check_vehicle_connection()
+        await can_server.broadcast_to_web_clients(can_server.get_broadcast_data())
     
     try:
         while True:
