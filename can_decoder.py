@@ -10,7 +10,7 @@ import logging
 import cantools
 from datetime import datetime
 
-DBC_FILE = "dbc/NTUR_EP6_260307.dbc"
+DBC_FILE = "dbc/NTUR_EP6_260322.dbc"
 
 # CAN ID : (subsystem, handler_function_name, param_type)
 # param_type: "raw" (data), "decoded" (decoded), "both" (data + decoded)
@@ -173,6 +173,24 @@ class CANDecoder:
         new_data_store = self.create_empty_data_store()
         self.data_store.clear()
         self.data_store.update(new_data_store)
+
+    def get_broadcast_data(self, vehicle_clients, message_count, vehicle_connected, last_data_time):
+        return {
+            'timestamp': self.data_store['timestamp']['time'].isoformat() if self.data_store['timestamp']['time'] else None,
+            'gps': self.data_store['gps'],
+            'velocity': self.data_store['velocity'],
+            'distance': self.data_store['distance'],
+            'accumulator': self.data_store['accumulator'],
+            'inverters': self.data_store['inverters'],
+            'vcu': self.data_store['vcu'],
+            'imu': self.data_store['imu'],
+            'imu2': self.data_store['imu2'],
+            'message_count': message_count,
+            'update_time': datetime.now().isoformat(),
+            'vehicle_clients': len(vehicle_clients),
+            'vehicle_connected': vehicle_connected,
+            'last_data_time': last_data_time
+        }
         
     def decode_can_message(self, msg):
         can_id = msg.arbitration_id

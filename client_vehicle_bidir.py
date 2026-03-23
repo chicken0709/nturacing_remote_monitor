@@ -435,7 +435,7 @@ class CANDataClient:
             self.csv_data = csv_data
             
             # 初始化回放參數
-            csv_index = 0
+            csv_index = self.csv_index
             csv_start_time = None
             csv_base_timestamp = csv_data[0]['timestamp']
             
@@ -444,6 +444,27 @@ class CANDataClient:
             
             # 回放循環（類似GUIvehical-v6的csv_receive_callback邏輯）
             while self.running and self.mode == 'csv':
+                # 如果外部修改了csv_index，則更新本地變量（例如跳轉功能）
+                if self.csv_index != csv_index:
+                    csv_index = self.csv_index
+                    csv_start_time = None
+
+                    if self.websocket and csv_data:
+                        # Safety clamp for the progress calculation
+                        safe_idx = min(csv_index, len(csv_data) - 1)
+                        progress_pct = (csv_index / len(csv_data)) * 100
+                        current_sec = (csv_data[safe_idx]['timestamp'] - csv_data[0]['timestamp']) / 1000000
+                        total_sec = (csv_data[-1]['timestamp'] - csv_data[0]['timestamp']) / 1000000
+
+                        await self.websocket.send(json.dumps({
+                            'type': 'csv_progress', # Use the same type your progress bar listens to
+                            'percentage': min(100, progress_pct),
+                            'current_time': current_sec,
+                            'total_time': total_sec,
+                            'current_index': csv_index,
+                            'total_count': len(csv_data)
+                        }))
+
                 # 暫停功能
                 if self.csv_paused:
                     await asyncio.sleep(0.1)
@@ -480,6 +501,7 @@ class CANDataClient:
                     await self.send_can_message(msg['can_id'], msg['data'], msg['bus_id'])
                     csv_index += 1
                     updated = True
+                    self.csv_index = csv_index  # 實時更新索引到實例變量
                     
                     # 每1000行打印一次進度
                     if csv_index % 1000 == 0:
@@ -555,13 +577,27 @@ class CANDataClient:
     async def csv_monitor(self):
         """监控CSV模式并启动replayer"""
         csv_task = None
+        last_file_attempted= None
         
         while self.running:
             try:
                 # 检查是否需要启动CSV replayer
-                if self.mode == 'csv' and self.csv_file and csv_task is None:
-                    print(f"✅ Starting CSV replayer task")
-                    csv_task = asyncio.create_task(self.csv_replayer())
+                if self.mode == 'csv':
+                    # IF there is no task OR the file path changed
+                    if csv_task is None or self.csv_file != last_file_attempted:
+                        # 1. Kill the old task if it exists
+                        if csv_task:
+                            print(f"🛑 Killing replayer for {last_file_attempted}")
+                            csv_task.cancel()
+                            try:
+                                await csv_task # Wait for it to actually stop
+                            except asyncio.CancelledError:
+                                pass
+                        
+                        # 2. Start the NEW task with the NEW file
+                        print(f"📂 Loading new file: {self.csv_file}")
+                        last_file_attempted = self.csv_file
+                        csv_task = asyncio.create_task(self.csv_replayer())
                 
                 # 如果切换回realtime模式，取消CSV任务
                 elif self.mode == 'realtime' and csv_task is not None:
@@ -577,6 +613,7 @@ class CANDataClient:
                 if csv_task and csv_task.done():
                     print(f"✅ CSV replayer completed")
                     csv_task = None
+                    self.mode = 'idle'
                 
                 await asyncio.sleep(0.1)
                 
@@ -622,13 +659,18 @@ class CANDataClient:
                     # 服务器选择了CSV文件
                     filename = data.get('filename')
                     print(f"Received CSV selection: {filename}")
-                    
-                    # 切换到CSV模式
-                    import os
-                    self.csv_file = os.path.join(LOGS_DIR, filename)
-                    
-                    if os.path.exists(self.csv_file):
-                        self.mode = 'csv'
+                    new_path = os.path.join(LOGS_DIR, filename)
+
+                    if os.path.exists(new_path):
+                        self.mode = 'realtime' # 先切回实时模式，触发CSV任务结束
+
+                        # 2. Reset all playback state
+                        self.csv_file = new_path
+                        self.csv_data = []      # Clear old file data from memory
+                        self.csv_index = 0      # Reset pointer to start
+                        self.csv_start_time = None
+                        self.csv_paused = False
+                        self.mode = 'csv'           # 切换到CSV模式
                         print(f"Switched to CSV mode: {self.csv_file}")
                         
                         # 确认切换
@@ -649,6 +691,7 @@ class CANDataClient:
                     print("Switching back to realtime mode")
                     self.mode = 'realtime'
                     self.csv_file = None
+                    self.csv_paused = False
                     
                     await self.websocket.send(json.dumps({
                         'type': 'mode_changed',
@@ -683,40 +726,45 @@ class CANDataClient:
                         }))
                 
                 elif cmd_type == 'csv_jump_time':
-                    # 前進或後退指定秒數
                     seconds = data.get('seconds', 0)
-                    if self.csv_data and self.csv_start_time:
-                        current_timestamp = self.csv_data[self.csv_index]['timestamp'] if self.csv_index < len(self.csv_data) else self.csv_data[-1]['timestamp']
+                    if self.csv_data: # Removed check for csv_start_time so you can jump while paused
+                        # Use current index timestamp or last available timestamp
+                        idx = min(self.csv_index, len(self.csv_data) - 1)
+                        current_timestamp = self.csv_data[idx]['timestamp']
                         target_timestamp = current_timestamp + (seconds * 1000000)
                         
-                        # 找到最接近的索引
+                        # Optimized search: clamp the target_index within valid bounds
                         target_index = self.csv_index
-                        if seconds > 0:  # 前進
+                        if seconds > 0:
                             for i in range(self.csv_index, len(self.csv_data)):
+                                target_index = i
                                 if self.csv_data[i]['timestamp'] >= target_timestamp:
-                                    target_index = i
                                     break
-                            else:
-                                target_index = len(self.csv_data) - 1
-                        else:  # 後退
+                        else:
                             for i in range(self.csv_index, -1, -1):
+                                target_index = i
                                 if self.csv_data[i]['timestamp'] <= target_timestamp:
-                                    target_index = i
                                     break
-                            else:
-                                target_index = 0
+
+                        # SAFETY CLAMP: Never let index equal len(data)
+                        self.csv_index = min(max(0, target_index), len(self.csv_data) - 1)
                         
-                        self.csv_index = target_index
+                        # RE-ANCHOR TIME
                         self.csv_start_time = time.time()
                         self.csv_base_timestamp = self.csv_data[self.csv_index]['timestamp']
                         
-                        print(f"Jumped {seconds}s to index {self.csv_index}")
+                        # CALCULATE PROGRESS
+                        progress = (self.csv_index / len(self.csv_data)) * 100
                         
+                        print(f"Jumped to index {self.csv_index} ({round(progress, 2)}%)")
+                        
+                        # SEND UPDATE (Including percentage for the progress bar!)
                         await self.websocket.send(json.dumps({
                             'type': 'csv_status',
                             'status': 'jumped',
-                            'seconds': seconds,
-                            'index': self.csv_index
+                            'progress': round(progress, 2),
+                            'index': self.csv_index,
+                            'seconds': seconds
                         }))
                 
                 elif cmd_type == 'csv_set_speed':

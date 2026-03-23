@@ -211,23 +211,7 @@ class RemoteCANServer:
     
     def get_broadcast_data(self):
         # prepare data for broadcasting to web clients
-        data = self.decoder.data_store
-        return {
-            'timestamp': data['timestamp']['time'].isoformat() if data['timestamp']['time'] else None,
-            'gps': data['gps'],
-            'velocity': data['velocity'],
-            'distance': data['distance'],
-            'accumulator': data['accumulator'],
-            'inverters': data['inverters'],
-            'vcu': data['vcu'],
-            'imu': data['imu'],
-            'imu2': data['imu2'],
-            'message_count': self.message_count,
-            'update_time': datetime.now().isoformat(),
-            'vehicle_clients': len(vehicle_clients),
-            'vehicle_connected': self.vehicle_connected,
-            'last_data_time': self.last_data_time
-        }
+        return self.decoder.get_broadcast_data(vehicle_clients, self.message_count, self.vehicle_connected, self.last_data_time)
 
     async def broadcast_to_web(self, data):
         # broadcast data to all web clients
@@ -399,6 +383,7 @@ async def request_csv_list():
 async def select_csv_file(request: Request):
     # select CSV file for playback
     if not can_server: return {'error': 'CAN server not initialized'}
+    can_server.message_count = 0
 
     data = await request.json()
     filename = data.get('filename')
@@ -416,6 +401,7 @@ async def select_csv_file(request: Request):
 async def switch_to_realtime():
     # switch back to realtime mode and clear data buffer
     if not can_server: return {'error': 'CAN server not initialized'}
+    can_server.message_count = 0
     
     # clear data buffer
     print("🧹 Clearing data buffer before switching to realtime mode...")
