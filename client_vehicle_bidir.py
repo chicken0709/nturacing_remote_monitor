@@ -61,6 +61,7 @@ class CANDataClient:
         self.csv_index = 0  # 當前回放索引
         self.csv_start_time = None  # 回放開始時間
         self.csv_base_timestamp = None  # CSV基準時間戳
+        self.csv_file_version = 0 # CSV文件版本，用于检测文件变化
         
     async def connect(self):
         """连接到服务器"""
@@ -577,13 +578,14 @@ class CANDataClient:
         """监控CSV模式并启动replayer"""
         csv_task = None
         last_file_attempted= None
+        last_version_attempted = -1
         
         while self.running:
             try:
                 # 检查是否需要启动CSV replayer
                 if self.mode == 'csv':
                     # IF there is no task OR the file path changed
-                    if csv_task is None or self.csv_file != last_file_attempted:
+                    if csv_task is None or self.csv_file_version != last_version_attempted:
                         # 1. Kill the old task if it exists
                         if csv_task:
                             print(f"🛑 Killing replayer for {last_file_attempted}")
@@ -595,11 +597,12 @@ class CANDataClient:
                         
                         # 2. Start the NEW task with the NEW file
                         print(f"📂 Loading new file: {self.csv_file}")
+                        last_version_attempted = self.csv_file_version
                         last_file_attempted = self.csv_file
                         csv_task = asyncio.create_task(self.csv_replayer())
                 
                 # 如果切换回realtime模式，取消CSV任务
-                elif self.mode == 'realtime' and csv_task is not None:
+                elif (self.mode == 'realtime' or self.mode == 'idle') and csv_task is not None:
                     print(f"❌ Stopping CSV replayer task")
                     csv_task.cancel()
                     try:
@@ -661,7 +664,13 @@ class CANDataClient:
                     new_path = os.path.join(LOGS_DIR, filename)
 
                     if os.path.exists(new_path):
-                        self.mode = 'realtime' # 先切回实时模式，触发CSV任务结束
+                        self.mode = 'idle' # 先切换到idle模式，等待csv_monitor启动新的replayer任务后再切换到csv模式
+
+                        # # 1. Clear the hardware/software buffers
+                        self.flush_message_queue() 
+                        
+                        # 2. Small sleep to let any 'in-thread' executions finish
+                        await asyncio.sleep(0.05) 
 
                         # 2. Reset all playback state
                         self.csv_file = new_path
@@ -669,6 +678,7 @@ class CANDataClient:
                         self.csv_index = 0      # Reset pointer to start
                         self.csv_start_time = None
                         self.csv_paused = False
+                        self.csv_file_version += 1
                         self.mode = 'csv'           # 切换到CSV模式
                         print(f"Switched to CSV mode: {self.csv_file}")
                         

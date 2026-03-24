@@ -372,6 +372,11 @@ async def select_csv_file(request: Request):
     can_server.message_count = 0
     can_server.mode_switch_completed = False
 
+    # clear data buffer
+    print("🧹 Clearing data buffer before playing csv file...")
+    can_server.decoder.reset_data_store()
+    print("✅ Data buffer cleared")
+
     data = await request.json()
     filename = data.get('filename')
     

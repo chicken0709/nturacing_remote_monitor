@@ -44,6 +44,8 @@ function updateModeStatus(mode, filename = null) {
         modeStatus.className = 'status-box status-csv';
         timelineSection.style.display = 'block';
         pauseBtn.disabled = false;
+        isPaused = false;
+        pauseBtn.textContent = '⏸️ Pause';
     } else {
         modeStatus.innerHTML = '🔴 Mode: Realtime <span class="mode-badge mode-realtime">LIVE</span>';
         modeStatus.className = 'status-box status-realtime';
