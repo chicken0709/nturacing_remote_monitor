@@ -5,27 +5,28 @@ This script runs on the vehicle's Raspberry Pi.
 It reads CAN data from can0 and can1 and sends it to the remote server.
 """
 
+import os
 import can
-import asyncio
-import websockets
+import csv
 import json
 import time
-import struct
-import os
+import glob
+import asyncio
+import websockets
 from datetime import datetime
 from packaging import version
 
 # Configuration
-# SERVER_URL = "ws://140.112.16.226:8889"  # 修改为你的服务器地址
+# SERVER_URL = "ws://140.112.16.226:8889"  # modify this to your server's IP address or hostname
 SERVER_URL = "ws://localhost:8889"
-RECONNECT_DELAY = 5  # 重连延迟（秒）
-HEARTBEAT_INTERVAL = 1  # 心跳间隔（秒）
-BATCH_SIZE = 50  # 批量发送的消息数量（增大以提高效率）
-BATCH_TIMEOUT = 0.05  # 批量发送超时（秒），50ms
-MAX_QUEUE_SIZE = 1000  # 最大队列大小，防止内存溢出
-USE_BATCH_MODE = True  # 批量发送模式
-LOGS_DIR = "../LOGS"  # CSV文件目录
-CSV_REPLAY_SPEED = 1.0  # CSV回放速度倍数
+RECONNECT_DELAY = 5  # reconnection delay (second)
+HEARTBEAT_INTERVAL = 1  # heartbeat interval (second)
+BATCH_SIZE = 50  # batch size for sending messages (increase to improve efficiency)
+BATCH_TIMEOUT = 0.05  # batch send timeout (second)
+MAX_QUEUE_SIZE = 1000  # maximum queue size to prevent memory overflow
+USE_BATCH_MODE = True  # batch sending mode
+LOGS_DIR = "../LOGS"  # CSV file directory
+CSV_REPLAY_SPEED = 1.0  # CSV replay speed multiplier
 
 class CANDataClient:
     def __init__(self, server_url):
@@ -37,34 +38,34 @@ class CANDataClient:
         self.message_count = 0
         self.last_heartbeat = time.time()
         
-        # 批量发送队列
+        # batched message queue and statistics
         self.message_queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
         self.dropped_messages = 0
         self.sent_batches = 0
         self.last_send_report = time.time()
         
-        # 去重统计
-        self.total_can_received = 0  # 从CAN收到的总消息数
-        self.filtered_duplicates = 0  # 被过滤的重复消息数
+        # statistics for filtering duplicate messages
+        self.total_can_received = 0  # total CAN messages received
+        self.filtered_duplicates = 0  # number of filtered duplicate messages
         
-        # 最新消息缓存 - 用于去重
+        # latest message cache - for filtering duplication
         # key: (bus_id, can_id), value: message_data
         self.latest_messages = {}
         self.cache_lock = asyncio.Lock()
         
-        # CSV回放模式
-        self.mode = 'realtime'  # 'realtime' 或 'csv'
+        # CSV playback parameters
+        self.mode = 'realtime' # 'realtime' or 'csv' or 'idle'
         self.csv_file = None
         self.csv_paused = False
         self.csv_playback_speed = CSV_REPLAY_SPEED
-        self.csv_data = []  # 存儲CSV數據
-        self.csv_index = 0  # 當前回放索引
-        self.csv_start_time = None  # 回放開始時間
-        self.csv_base_timestamp = None  # CSV基準時間戳
-        self.csv_file_version = 0 # CSV文件版本，用于检测文件变化
+        self.csv_data = []  # store CSV data
+        self.csv_index = 0  # current playback index
+        self.csv_start_time = None  # playback start time (real time)
+        self.csv_base_timestamp = None  # csv base timestamp
+        self.csv_file_version = 0 # csv file version for detecting changes (incremented on each file selection)
         
     async def connect(self):
-        """连接到服务器"""
+        # connect to the server with reconnection logic
         while self.running:
             try:
                 print(f"Connecting to server at {self.server_url}...")
@@ -82,10 +83,7 @@ class CANDataClient:
         return False
     
     def scan_csv_files(self):
-        """扫描LOGS目录下的CSV文件"""
-        import os
-        import glob
-        
+        # scan csv files in LOGS_DIR and return a list of file info
         try:
             csv_files = []
             pattern = os.path.join(LOGS_DIR, '*.csv')
@@ -104,7 +102,7 @@ class CANDataClient:
                     'size_mb': round(file_size / 1024 / 1024, 2)
                 })
             
-            # 按修改时间倒序排序
+            # sort by modified time (newest first)
             csv_files.sort(key=lambda x: x['modified'], reverse=True)
             return csv_files
         except Exception as e:
@@ -112,9 +110,9 @@ class CANDataClient:
             return []
     
     def init_can_buses(self):
-        """初始化CAN总线"""
+        # initialize CAN buses
         try:
-            # 初始化 can0
+            # initialize can0
             can_kwargs = dict(channel='can0')
             if version.parse(can.__version__) >= version.parse('4.2.0'):
                 can_kwargs['interface'] = 'socketcan'
@@ -127,7 +125,7 @@ class CANDataClient:
             self.bus0 = None
         
         try:
-            # 初始化 can1
+            # initialize can1
             can1_kwargs = dict(channel='can1')
             if version.parse(can.__version__) >= version.parse('4.2.0'):
                 can1_kwargs['interface'] = 'socketcan'
@@ -140,10 +138,10 @@ class CANDataClient:
             self.bus1 = None
     
     async def send_can_message(self, can_id, data, bus_id):
-        """将CAN消息加入队列（智能策略：数据相同去重，不同则保留）"""
+        # enqueue CAN message with duplication filtering
         self.total_can_received += 1
         
-        # 📡 網路斷線時直接丟棄資料，不累積歷史資料
+        # discard data immediately if not connected, do not accumulate backlog
         if not self.websocket:
             return False
         
@@ -156,7 +154,7 @@ class CANDataClient:
             'timestamp': time.time()
         }
         
-        # CSV回放模式下，跳过去重逻辑，直接加入队列
+        # under csv mode, skip duplication filtering and directly enqueue all messages
         if self.mode == 'csv':
             try:
                 self.message_queue.put_nowait(message_data)
@@ -165,7 +163,7 @@ class CANDataClient:
                 self.dropped_messages += 1
                 return False
         
-        # 如果使用单条发送模式（用于测试）
+        # single message mode for testing
         if not USE_BATCH_MODE:
             if self.websocket:
                 try:
@@ -182,33 +180,31 @@ class CANDataClient:
                 except Exception as e:
                     return False
             return False
-        
-        # 批量模式 - 智能去重
+        # batch mode with duplication filtering
         should_queue = False
         async with self.cache_lock:
-            # 检查是否是新数据
+            # duplication check
             if message_key in self.latest_messages:
                 old_data = self.latest_messages[message_key]['data']
-                # 只有数据真正变化时才加入队列
+                # add to queue only if data changed, otherwise just update timestamp in cache
                 if old_data != data_list:
                     should_queue = True
                     self.latest_messages[message_key] = message_data
-                # 数据相同则只更新时间戳，不重复加入队列（这就是去重！）
                 else:
                     self.filtered_duplicates += 1
                     self.latest_messages[message_key]['timestamp'] = message_data['timestamp']
             else:
-                # 新的CAN ID，加入队列
+                # new CAN ID, add to cache and queue
                 should_queue = True
                 self.latest_messages[message_key] = message_data
         
         if should_queue:
             try:
-                # 直接把完整消息放入队列，不只是key
+                # add full message data to the queue, not just the key
                 self.message_queue.put_nowait(message_data)
                 return True
             except asyncio.QueueFull:
-                # 队列满时已经在缓存中更新了最新值
+                # dropped messages
                 self.dropped_messages += 1
                 if self.dropped_messages % 100 == 0:
                     print(f"Warning: Queue full ({self.message_queue.qsize()}), data cached. Delayed: {self.dropped_messages}")
@@ -216,7 +212,7 @@ class CANDataClient:
         return True
     
     async def send_heartbeat(self):
-        """发送心跳包"""
+        # send heartbeat message to the server
         if not self.websocket:
             return
         
@@ -247,18 +243,18 @@ class CANDataClient:
             print(f"Error sending heartbeat: {e}")
     
     async def batch_sender(self):
-        """批量发送消息到服务器（保留所有数据变化）"""
+        # send batched messages to the server
         try:
             batch = []
             last_send_time = time.time()
             
-            # 等待websocket连接建立
+            # wait for websocket connection to be established
             while self.running and not self.websocket:
                 await asyncio.sleep(0.1)
             
             print("✅ Connected - Starting batch sender")
             
-            # 主发送循环
+            # main loop for sending batches
             while self.running:
                 try:
                     if not self.websocket:
@@ -266,7 +262,7 @@ class CANDataClient:
                         continue
                     
                     try:
-                        # 尝试从队列获取消息，超时时间为BATCH_TIMEOUT
+                        # try to get messages from queue with a timeout of BATCH_TIMEOUT
                         timeout = max(0.001, BATCH_TIMEOUT - (time.time() - last_send_time))
                         message = await asyncio.wait_for(
                             self.message_queue.get(),
@@ -274,7 +270,7 @@ class CANDataClient:
                         )
                         batch.append(message)
                         
-                        # 如果达到批量大小或超时，发送批量数据
+                        # if batch size reached or timeout, send batch
                         current_time = time.time()
                         should_send = (
                             len(batch) >= BATCH_SIZE or
@@ -282,7 +278,7 @@ class CANDataClient:
                         )
                         
                         if should_send:
-                            # 批量发送
+                            # send batch
                             batch_data = {
                                 'type': 'can_batch',
                                 'messages': batch,
@@ -293,7 +289,7 @@ class CANDataClient:
                                 self.message_count += len(batch)
                                 self.sent_batches += 1
                                 
-                                # 定期报告发送状态
+                                # print stastics periodically
                                 if time.time() - self.last_send_report > 5:
                                     filter_rate = 0
                                     if self.total_can_received > 0:
@@ -308,7 +304,7 @@ class CANDataClient:
                             last_send_time = current_time
                             
                     except asyncio.TimeoutError:
-                        # 超时，如果有数据就发送
+                        # timeout, if batch is not empty, send it immediately
                         if batch:
                             batch_data = {
                                 'type': 'can_batch',
@@ -327,12 +323,12 @@ class CANDataClient:
                             last_send_time = time.time()
                             
                 except (websockets.exceptions.ConnectionClosed, websockets.exceptions.WebSocketException):
-                    # 連線關閉，清空批次和整個 queue
+                    # connection closed, clear the batch and the entire queue
                     batch = []
                     queue_size = self.message_queue.qsize()
                     if queue_size > 0:
                         print(f"🗑️  Connection lost - Discarding {queue_size} queued messages")
-                        # 清空 queue，不保留斷線期間的資料
+                        # clear queue
                         while not self.message_queue.empty():
                             try:
                                 self.message_queue.get_nowait()
@@ -354,19 +350,19 @@ class CANDataClient:
             traceback.print_exc()
     
     async def read_can0(self):
-        """读取CAN0数据（持續運作，不受網路連線影響）"""
+        # read CAN messages from bus0
         loop = asyncio.get_event_loop()
         while self.running:
             try:
-                # 只在realtime模式下读取CAN（網路斷線也繼續讀取）
+                # read CAN messages only in realtime mode (continue reading even if connection lost)
                 if self.mode == 'realtime' and self.bus0:
-                    # 使用线程池执行阻塞的recv调用
+                    # use thread pool to execute blocking recv call
                     message = await loop.run_in_executor(
-                        None,  # 使用默认线程池
+                        None,  # use default thread pool
                         lambda: self.bus0.recv(timeout=0.01)
                     )
                     if message:
-                        # send_can_message 內部會檢查連線狀態
+                        # send_can_message will check the connection status internally
                         await self.send_can_message(
                             message.arbitration_id,
                             message.data,
@@ -381,26 +377,25 @@ class CANDataClient:
                 await asyncio.sleep(0.1)
     
     async def csv_replayer(self):
-        """從CSV文件回放CAN數據（參考GUIvehical-v6實現）"""
-        import csv
+        # replay CAN messages from CSV file according to their timestamps
         
         print(f"🎬 Starting CSV replay from: {self.csv_file}")
         
         try:
-            # 讀取所有CSV數據到記憶體
+            # read and parse CSV file
             csv_data = []
             with open(self.csv_file, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     try:
-                        # 讀取timestamp（微秒）
+                        # read timestamp (microseconds)
                         timestamp = int(row.get('Time Stamp', row.get('timestamp', 0)))
-                        # 讀取CAN ID（16進制）
+                        # read CAN ID (hexadecimal)
                         can_id = int(row.get('ID', row.get('id', row.get('can_id', '0'))), 16)
-                        # 讀取bus ID（預設0）
+                        # read bus ID (default 0)
                         bus_id = int(row.get('bus', row.get('bus_id', 0)))
                         
-                        # 解析data字段（D1-D12格式）
+                        # decode data fields (D1-D12 format)
                         data = []
                         for i in range(1, 13):
                             data_key = f'D{i}'
@@ -431,10 +426,9 @@ class CANDataClient:
             
             print(f"📁 Loaded {len(csv_data)} CAN messages from CSV")
             
-            # 保存CSV數據到實例變量
             self.csv_data = csv_data
             
-            # 初始化回放參數
+            # initialize playback variables
             csv_index = self.csv_index
             csv_start_time = None
             csv_base_timestamp = csv_data[0]['timestamp']
@@ -442,9 +436,9 @@ class CANDataClient:
             print(f"🕐 CSV時間範圍: {csv_base_timestamp} - {csv_data[-1]['timestamp']}")
             print(f"⏱️ 預計回放時長: {(csv_data[-1]['timestamp'] - csv_base_timestamp) / 1000000:.2f} 秒")
             
-            # 回放循環（類似GUIvehical-v6的csv_receive_callback邏輯）
+            # playback loop
             while self.running and self.mode == 'csv':
-                # 如果外部修改了csv_index，則更新本地變量（例如跳轉功能）
+                # check if csv_index has been updated by command_receiver (e.g. jump or speed change)
                 if self.csv_index != csv_index:
                     csv_index = self.csv_index
                     csv_start_time = None
@@ -465,35 +459,34 @@ class CANDataClient:
                             'total_count': len(csv_data)
                         }))
 
-                # 暫停功能
+                # pause
                 if self.csv_paused:
                     await asyncio.sleep(0.1)
                     # 暫停時重置時間基準
                     csv_start_time = None
                     continue
                 
-                # 檢查是否回放完成
+                # check if playback has reached the end of the CSV data
                 if csv_index >= len(csv_data):
                     print(f"✅ CSV replay completed: {csv_index} rows processed")
                     break
                 
-                # 初始化時間基準
+                # intialize time base
                 current_time = time.time()
                 if csv_start_time is None:
                     csv_start_time = current_time
                     csv_base_timestamp = csv_data[csv_index]['timestamp']
                 
-                # 計算實際經過的時間（秒），使用實例變量的速度
+                # calculate elapsed time in seconds using the instance variable for playback speed
                 elapsed_time = (current_time - csv_start_time) * self.csv_playback_speed
-                # 轉換為微秒並計算目標時間戳
+                # covert to microseconds and calculate target timestamp
                 target_timestamp = csv_base_timestamp + elapsed_time * 1000000
                 
-                # 更新當前索引到實例變量
-                self.csv_index = csv_index
+                # update instance variables to reflect the current state of playback
                 self.csv_start_time = csv_start_time
                 self.csv_base_timestamp = csv_base_timestamp
                 
-                # 發送所有在目標時間戳之前的消息
+                # send all messages with timestamp <= target_timestamp
                 updated = False
                 while (csv_index < len(csv_data) and 
                        csv_data[csv_index]['timestamp'] <= target_timestamp):
@@ -501,15 +494,15 @@ class CANDataClient:
                     await self.send_can_message(msg['can_id'], msg['data'], msg['bus_id'])
                     csv_index += 1
                     updated = True
-                    self.csv_index = csv_index  # 實時更新索引到實例變量
+                    self.csv_index = csv_index
                     
-                    # 每1000行打印一次進度
+                    # print progress every 1000
                     if csv_index % 1000 == 0:
                         progress_pct = (csv_index / len(csv_data)) * 100
                         elapsed_sec = (csv_data[csv_index]['timestamp'] - csv_data[0]['timestamp']) / 1000000
                         print(f"📊 CSV replay: {csv_index}/{len(csv_data)} ({progress_pct:.1f}%) - {elapsed_sec:.2f}s")
                 
-                # 每0.5秒發送一次進度更新給server
+                # send update to server every 0.5 seconds
                 if updated and time.time() - getattr(self, '_last_progress_update', 0) > 0.5:
                     self._last_progress_update = time.time()
                     if self.websocket:
@@ -526,10 +519,10 @@ class CANDataClient:
                             'total_count': len(csv_data)
                         }))
                 
-                # 短暫休眠避免CPU空轉
+                # sleep to avoid busy loop
                 await asyncio.sleep(0.001)
             
-            # 通知服務器回放完成
+            # notify server that replay is completed
             if self.websocket:
                 await self.websocket.send(json.dumps({
                     'type': 'csv_status',
@@ -548,19 +541,19 @@ class CANDataClient:
             traceback.print_exc()
     
     async def read_can1(self):
-        """读取CAN1数据（持續運作，不受網路連線影響）"""
+        # read CAN messages from bus1
         loop = asyncio.get_event_loop()
         while self.running:
             try:
-                # 只在realtime模式下读取CAN（網路斷線也繼續讀取）
+                # read CAN messages only in realtime mode (continue reading even if connection lost)
                 if self.mode == 'realtime' and self.bus1:
-                    # 使用线程池执行阻塞的recv调用
+                    # use thread pool to execute blocking recv call
                     message = await loop.run_in_executor(
-                        None,  # 使用默认线程池
+                        None,  # use default thread pool
                         lambda: self.bus1.recv(timeout=0.01)
                     )
                     if message:
-                        # send_can_message 內部會檢查連線狀態
+                        # send_can_message will check the connection status internally
                         await self.send_can_message(
                             message.arbitration_id,
                             message.data,
@@ -575,14 +568,14 @@ class CANDataClient:
                 await asyncio.sleep(0.1)
     
     async def csv_monitor(self):
-        """监控CSV模式并启动replayer"""
+        # monitor CSV file changes and manage the csv replayer task
         csv_task = None
         last_file_attempted= None
         last_version_attempted = -1
         
         while self.running:
             try:
-                # 检查是否需要启动CSV replayer
+                # check if we need to start/restart the csv replayer
                 if self.mode == 'csv':
                     # IF there is no task OR the file path changed
                     if csv_task is None or self.csv_file_version != last_version_attempted:
@@ -601,7 +594,7 @@ class CANDataClient:
                         last_file_attempted = self.csv_file
                         csv_task = asyncio.create_task(self.csv_replayer())
                 
-                # 如果切换回realtime模式，取消CSV任务
+                # cancel csv task if switched back to realtime or idle mode
                 elif (self.mode == 'realtime' or self.mode == 'idle') and csv_task is not None:
                     print(f"❌ Stopping CSV replayer task")
                     csv_task.cancel()
@@ -611,7 +604,7 @@ class CANDataClient:
                         pass
                     csv_task = None
                 
-                # 检查CSV任务是否完成
+                # check if csv task is done
                 if csv_task and csv_task.done():
                     print(f"✅ CSV replayer completed")
                     csv_task = None
@@ -628,22 +621,22 @@ class CANDataClient:
                 await asyncio.sleep(0.1)
     
     async def command_receiver(self):
-        """接收并处理服务器命令"""
+        # receive and process commands from the server
         while self.running:
             try:
                 if not self.websocket:
                     await asyncio.sleep(0.1)
                     continue
                 
-                # 接收服务器消息
+                # receive command from server
                 message = await self.websocket.recv()
                 data = json.loads(message)
                 
                 cmd_type = data.get('type')
-                print(f"📥 Received command: {cmd_type}")  # 調試信息
+                print(f"📥 Received command: {cmd_type}")
                 
                 if cmd_type == 'request_csv_list':
-                    # 服务器请求CSV文件列表
+                    # server requests CSV file list
                     print("[DEBUG] Received request for CSV file list")
                     csv_files = self.scan_csv_files()
                     print(f"[DEBUG] Found {len(csv_files)} CSV files")
@@ -658,31 +651,31 @@ class CANDataClient:
                     print(f"[DEBUG] Response sent successfully")
                 
                 elif cmd_type == 'select_csv':
-                    # 服务器选择了CSV文件
+                    # select csv file for replay
                     filename = data.get('filename')
                     print(f"Received CSV selection: {filename}")
                     new_path = os.path.join(LOGS_DIR, filename)
 
                     if os.path.exists(new_path):
-                        self.mode = 'idle' # 先切换到idle模式，等待csv_monitor启动新的replayer任务后再切换到csv模式
+                        self.mode = 'idle' # switch to idle mode while loading new file to prevent any CAN reading/sending
 
-                        # # 1. Clear the hardware/software buffers
+                        # 1. Clear the hardware/software buffers
                         self.flush_message_queue() 
                         
                         # 2. Small sleep to let any 'in-thread' executions finish
                         await asyncio.sleep(0.05) 
 
-                        # 2. Reset all playback state
+                        # 3. Reset all playback state
                         self.csv_file = new_path
                         self.csv_data = []      # Clear old file data from memory
                         self.csv_index = 0      # Reset pointer to start
                         self.csv_start_time = None
                         self.csv_paused = False
                         self.csv_file_version += 1
-                        self.mode = 'csv'           # 切换到CSV模式
+                        self.mode = 'csv'           # switch to csv mode
                         print(f"Switched to CSV mode: {self.csv_file}")
                         
-                        # 确认切换
+                        # confirm switch
                         await self.websocket.send(json.dumps({
                             'type': 'mode_changed',
                             'mode': 'csv',
@@ -696,7 +689,7 @@ class CANDataClient:
                         }))
                 
                 elif cmd_type == 'switch_realtime':
-                    # 切换回实时模式
+                    # swith to realtime mode
                     print("Switching back to realtime mode")
                     self.mode = 'realtime'
                     self.csv_file = None
@@ -715,19 +708,19 @@ class CANDataClient:
                     # print("✅ Backlog purged and Server notified.")
                 
                 elif cmd_type == 'csv_pause':
-                    # 暫停/恢復CSV回放
+                    # pause/resume csv playback 
                     self.csv_paused = not self.csv_paused
                     print(f"CSV replay {'paused' if self.csv_paused else 'resumed'}")
                 
                 elif cmd_type == 'csv_jump_percentage':
-                    # 跳到指定百分比位置
+                    # jump to a specific percentage in the CSV file
                     percentage = data.get('percentage', 0)
                     if self.csv_data:
                         percentage = max(0, min(100, percentage))
                         target_index = int(len(self.csv_data) * percentage / 100)
                         self.csv_index = target_index
                         
-                        # 重置時間基準
+                        # reset base timestamp
                         if self.csv_index < len(self.csv_data):
                             self.csv_start_time = time.time()
                             self.csv_base_timestamp = self.csv_data[self.csv_index]['timestamp']
@@ -784,10 +777,10 @@ class CANDataClient:
                         }))
                 
                 elif cmd_type == 'csv_set_speed':
-                    # 設定回放速度
+                    # set playback speed
                     speed = data.get('speed', 1.0)
                     if speed > 0:
-                        # 調整時間基準點以保持連續性
+                        # adjust base timestamp to maintain continuity
                         if self.csv_start_time and not self.csv_paused and self.csv_data:
                             current_time = time.time()
                             elapsed_time = (current_time - self.csv_start_time) * self.csv_playback_speed
@@ -826,7 +819,7 @@ class CANDataClient:
         print(f"🧹 Flushed {flushed_count} messages.")
 
     async def heartbeat_loop(self):
-        """心跳循环"""
+        # heartbeat loop
         while self.running:
             try:
                 if self.websocket:
@@ -839,42 +832,42 @@ class CANDataClient:
                 break
     
     async def run(self):
-        """主运行循环"""
+        # main run loop
         print("Starting CAN Data Client...")
         
-        # 初始化CAN总线
+        # initialize CAN buses
         self.init_can_buses()
         
         while self.running:
-            # 连接到服务器
+            # connect to server
             if await self.connect():
                 try:
-                    # 创建并运行所有任务
+                    # create and run all tasks
                     tasks = [
                         asyncio.create_task(self.read_can0()),
                         asyncio.create_task(self.read_can1()),
                         asyncio.create_task(self.batch_sender()),
                         asyncio.create_task(self.heartbeat_loop()),
                         asyncio.create_task(self.command_receiver()),
-                        asyncio.create_task(self.csv_monitor())  # 监控CSV模式
+                        asyncio.create_task(self.csv_monitor())
                     ]
                     
-                    # 等待任务完成或连接断开
+                    # wait for task to finish or connection to close
                     done, pending = await asyncio.wait(
                         tasks,
                         return_when=asyncio.FIRST_COMPLETED
                     )
                     
-                    # 检查完成的任务是否有异常
+                    # check if any finished task raised an exception
                     for task in done:
                         if task.exception():
                             print(f"Task failed with exception: {task.exception()}")
                     
-                    # 取消剩余任务
+                    # cancel remaining tasks
                     for task in pending:
                         task.cancel()
                     
-                    # 等待任务清理完成
+                    # wait for task cleanup
                     await asyncio.gather(*pending, return_exceptions=True)
                     
                 except websockets.exceptions.ConnectionClosed:
@@ -882,12 +875,12 @@ class CANDataClient:
                 except Exception as e:
                     print(f"Error in main loop: {e}")
                 finally:
-                    # 确保所有任务都被取消
+                    # ensure all the tasks are cancelled
                     for task in tasks:
                         if not task.done():
                             task.cancel()
                     
-                    # 关闭websocket
+                    # close websocket
                     if self.websocket:
                         try:
                             await self.websocket.close()
@@ -895,7 +888,7 @@ class CANDataClient:
                             pass
                     self.websocket = None
                     
-                    # 清空 queue，避免重連時發送舊資料
+                    # empty queue to avoid sending stale data on reconnect
                     queue_size = self.message_queue.qsize()
                     if queue_size > 0:
                         print(f"🗑️  Clearing {queue_size} old messages before reconnect")
@@ -909,7 +902,7 @@ class CANDataClient:
                     await asyncio.sleep(RECONNECT_DELAY)
     
     def shutdown(self):
-        """关闭客户端"""
+        # shutdown client
         print("Shutting down client...")
         self.running = False
         
@@ -919,7 +912,7 @@ class CANDataClient:
             self.bus1.shutdown()
 
 async def main():
-    """主函数"""
+    # main function
     client = CANDataClient(SERVER_URL)
     
     try:
