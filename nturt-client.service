@@ -1,0 +1,19 @@
+[Unit]
+Description=NTURT CAN Monitor Server - Vehicle Side
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Desktop/GUI_SC-dev # TODO
+ExecStart=/usr/bin/python3 /home/pi/Desktop/nturacing_remote_monitor/client_vehicle.py # TODO
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Enviromental variables
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

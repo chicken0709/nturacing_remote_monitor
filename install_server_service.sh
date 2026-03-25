@@ -3,9 +3,6 @@
 
 echo "Installing NTURT Server service..."
 
-# Add execute permission to the startup script
-chmod +x /home/pi/Desktop/GUI_SC-dev/start_server.sh
-
 # Copy the service file to systemd directory
 sudo cp /home/pi/Desktop/GUI_SC-dev/nturt-server.service /etc/systemd/system/
 
