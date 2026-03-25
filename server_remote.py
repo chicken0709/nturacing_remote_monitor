@@ -418,6 +418,19 @@ async def toggle_csv_pause():
 
     return await can_server.send_to_vehicle_client(message_dict, status_dict)
 
+@app.post('/api/csv/restart')
+async def restart_csv_playback():
+    # restart CSV playback
+    if not can_server: return {'error': 'CAN server not initialized'}
+    can_server.message_count = 0
+
+    print("🔄 API received restart")
+    
+    message_dict = {'type': 'csv_restart'}
+    status_dict = {'status': 'restarted'}
+
+    return await can_server.send_to_vehicle_client(message_dict, status_dict)
+
 @app.post('/api/csv/jump_percentage')
 async def jump_to_percentage(request: Request):
     # jump to specified percentage position in CSV playback

@@ -46,13 +46,21 @@ function updateModeStatus(mode, filename = null) {
         pauseBtn.disabled = false;
         isPaused = false;
         pauseBtn.textContent = '⏸️ Pause';
-    } else {
+    } else if (mode === 'realtime') {
         modeStatus.innerHTML = '🔴 Mode: Realtime <span class="mode-badge mode-realtime">LIVE</span>';
         modeStatus.className = 'status-box status-realtime';
         timelineSection.style.display = 'none';
         pauseBtn.disabled = true;
         isPaused = false;
         pauseBtn.textContent = '⏸️ Pause';
+    } else if (mode === 'idle') {
+        const displayName = filename ? filename.substring(0, 30) : 'REPLAY';
+        modeStatus.innerHTML = `📼 Mode: CSV Replay <span class="mode-badge mode-csv">${displayName}</span>`;
+        modeStatus.className = 'status-box status-csv';
+        timelineSection.style.display = 'block';
+        pauseBtn.disabled = false;
+        isPaused = false;
+        pauseBtn.textContent = '🔄 Restart';
     }
 }
 
@@ -215,6 +223,17 @@ async function switchToRealtime() {
 }
 
 async function togglePause() {
+    if (currentMode === 'idle') {
+        isPaused = false;
+         try {
+            await fetch('/api/csv/restart', { method: 'POST' });
+            log(`✓ Restarted replay`, 'success');
+        } catch (error) {
+            log(`✗ Restart failed: ${error.message}`, 'error');
+        }
+        return
+    }
+
     if (currentMode !== 'csv') {
         log('⚠ Pause only works in CSV mode', 'warning');
         return;
