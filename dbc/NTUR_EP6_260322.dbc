@@ -191,22 +191,22 @@ BO_ 1031 RTK_Gz: 4 RTK
 BO_ 1032 RTK_Mag: 4 RTK
    SG_ Velocity : 0|32@1- (0.001,0) [0|1] "m/s" VCU
 
-BO_ 389 acc_lsm06: 8 IMU_RPI
+BO_ 389 acc_lsm06: 6 IMU_RPI
    SG_ a_x : 0|16@1- (0.001,0) [0|1] "m/s^2" IMU_RPI
    SG_ a_y : 16|16@1- (0.001,0) [0|1] "m/s^2" IMU_RPI
    SG_ a_z : 32|16@1- (0.001,0) [0|1] "m/s^2" IMU_RPI
 
-BO_ 1062 acc_lsm303: 8 IMU_RPI
+BO_ 1062 acc_lsm303: 6 IMU_RPI
    SG_ a_x : 0|16@1- (0.001,0) [0|1] "m/s^2" IMU_RPI
    SG_ a_y : 16|16@1- (0.001,0) [0|1] "m/s^2" IMU_RPI
    SG_ a_z : 32|16@1- (0.001,0) [0|1] "m/s^2" Vector__XXX
 
-BO_ 645 gyro: 8 IMU_RPI
+BO_ 645 gyro: 6 IMU_RPI
    SG_ g_x : 0|16@1- (0.1,0) [0|1] "deg/s" Vector__XXX
    SG_ g_y : 16|16@1- (0.1,0) [0|1] "deg/s" Vector__XXX
    SG_ g_z : 32|16@1- (0.1,0) [0|1] "deg/s" Vector__XXX
 
-BO_ 1065 mag: 8 IMU_RPI
+BO_ 1065 mag: 6 IMU_RPI
    SG_ m_x : 0|16@1- (0.1,0) [0|1] "uT" Vector__XXX
    SG_ m_y : 16|16@1- (0.1,0) [0|1] "uT" Vector__XXX
    SG_ m_z : 32|16@1- (0.1,0) [0|1] "uT" Vector__XXX
@@ -233,7 +233,7 @@ BO_ 1843 PID_Feedback: 1 INV3
 
 BO_ 1844 PID_Feedback: 1 INV4
 
-BO_ 901 euler: 8 IMU_RPI
+BO_ 901 euler: 6 IMU_RPI
    SG_ roll : 0|16@1- (0.01,0) [0|1] "。" Vector__XXX
    SG_ pitch : 16|16@1- (0.01,0) [0|1] "。" Vector__XXX
    SG_ yaw : 32|16@1- (0.01,0) [0|1] "。" Vector__XXX
