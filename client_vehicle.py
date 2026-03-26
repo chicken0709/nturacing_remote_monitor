@@ -2,17 +2,16 @@
 NTURT CAN Data Client - Vehicle Side
 ====================================
 This script runs on the vehicle's Raspberry Pi.
-It reads CAN data from can0 and can1 and sends it to the remote server.
+It reads CAN data from can0 and can1 and sends it to the remote server, or replays CSV files.
 """
 
 import os
-import can
 import json
 import time
 import asyncio
 import websockets
-from packaging import version
 
+from can_engine import CANEngine
 from csv_engine import CSVEngine
 
 # Configuration
@@ -30,30 +29,30 @@ class CANDataClient:
         self.server_url = server_url
         self.websocket = None
         self.running = True
-        self.bus0 = None
-        self.bus1 = None
-        self.message_count = 0
+
+        self.mode = 'realtime'        # 'realtime' or 'csv' or 'idle'
         self.last_heartbeat = time.time()
-        self.mode = 'realtime' # 'realtime' or 'csv' or 'idle'
         
-        # batched message queue and statistics
+        # message queue and statistics
+        self.message_count = 0
         self.message_queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
         self.dropped_messages = 0
         self.sent_batches = 0
         self.last_send_report = time.time()
         
-        # statistics for filtering duplicate messages
-        self.total_can_received = 0  # total CAN messages received
+        # duplicate messages filtering
+        self.total_can_received = 0   # total CAN messages received
         self.filtered_duplicates = 0  # number of filtered duplicate messages
-        
-        # latest message cache - for filtering duplication
-        # key: (bus_id, can_id), value: message_data
-        self.latest_messages = {}
+        self.latest_messages = {}     # key: (bus_id, can_id), value: message_data
         self.cache_lock = asyncio.Lock()
+
+        # initialize CAN engine
+        self.can_engine = CANEngine(self)
 
         # initialize CSV engine
         self.csv_engine = CSVEngine(self)
 
+        # command handlers mapping
         self.command_handler = {
             'switch_realtime': self.handle_switch_realtime,
             'request_csv_list': self.csv_engine.handle_request_csv_list,
@@ -70,23 +69,22 @@ class CANDataClient:
         print("Starting CAN Data Client...")
         
         # initialize CAN buses
-        self.bus0 = self.init_can_bus('can0', 'CAN0')
-        self.bus1 = self.init_can_bus('can1', 'CAN1')
+        self.can_engine.start()
         
         while self.running:
             if await self.connect():
                 try:
-                    # use a TaskGroup (Python 3.11+)
+                    # TaskGroup (Python 3.11+)
                     async with asyncio.TaskGroup() as tg:
                         # start all workers
-                        t1 = tg.create_task(self.read_can_bus(0))
-                        t2 = tg.create_task(self.read_can_bus(1))
+                        t1 = tg.create_task(self.can_engine.read_can_bus(0))
+                        t2 = tg.create_task(self.can_engine.read_can_bus(1))
                         t3 = tg.create_task(self.batch_sender())
                         t4 = tg.create_task(self.heartbeat_loop())
                         t5 = tg.create_task(self.csv_engine.csv_player())
                         
                         # if command_receiver returns (connection loss) or 
-                        # one of the above tasks raises an exception, the TaskGroup will 
+                        # one of the above tasks raises an exception, TaskGroup will 
                         # automatically terminate all tasks and exit the block
                         await self.command_receiver()
 
@@ -125,47 +123,7 @@ class CANDataClient:
                 await asyncio.sleep(RECONNECT_DELAY)
         return False
     
-    def init_can_bus(self, channel_name, bus_name):
-        # initialize a CAN bus
-        try:
-            can_kwargs = dict(channel=channel_name)
-            if version.parse(can.__version__) >= version.parse('4.2.0'):
-                can_kwargs['interface'] = 'socketcan'
-            else:
-                can_kwargs['bustype'] = 'socketcan'
-            return can.interface.Bus(**can_kwargs)
-        except Exception as e:
-            print(f"Warning: Could not initialize {bus_name} bus: {e}")
-            return None
-        
-    async def read_can_bus(self, bus_id):
-        # read CAN messages from the specified bus
-        loop = asyncio.get_event_loop()
-        while self.running:
-            try:
-                # read CAN messages only in realtime mode (continue reading even if connection lost)
-                if self.mode == 'realtime' and getattr(self, f'bus{bus_id}'):
-                    # use thread pool to execute blocking recv call
-                    message = await loop.run_in_executor(
-                        None,  # use default thread pool
-                        lambda: getattr(self, f'bus{bus_id}').recv(timeout=0.01)
-                    )
-                    if message:
-                        # send_can_message will check the connection status internally
-                        await self.send_can_message(
-                            message.arbitration_id,
-                            message.data,
-                            bus_id=bus_id
-                        )
-                else:
-                    await asyncio.sleep(0.01)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"Error reading CAN{bus_id}: {e}")
-                await asyncio.sleep(0.1)
-    
-    async def send_can_message(self, can_id, data, bus_id):
+    async def enqueue_can_message(self, can_id, data, bus_id):
         # enqueue CAN message with duplication filtering
         self.total_can_received += 1
         
@@ -452,11 +410,7 @@ class CANDataClient:
         # shutdown client
         print("Shutting down client...")
         self.running = False
-        
-        if self.bus0:
-            self.bus0.shutdown()
-        if self.bus1:
-            self.bus1.shutdown()
+        self.can_engine.shutdown()
 
 async def main():
     # main function

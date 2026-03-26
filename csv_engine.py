@@ -1,5 +1,5 @@
 """
-CSV Engine for NTURT Remote Monitor (Client)
+CSV Engine for NTURT Remote Monitor
 ====================================
 This module handles CSV file loading and replay functionality.
 """
@@ -35,7 +35,7 @@ class CSVEngine:
         while self.client.running:
             try:
                 # state check
-                # if not in CSV mode, or already finished the current version, just wait
+                # if not in CSV mode, or already finished the current version, wait
                 if self.client.mode != 'csv' or self.csv_file_version == last_version_processed:
                     await asyncio.sleep(0.2) 
                     continue
@@ -48,23 +48,21 @@ class CSVEngine:
                 if not self.csv_data:
                     print("⚠️ Failed to load CSV or file empty. Switching to idle.")
                     self.client.mode = 'idle'
-                    last_version_processed = self.csv_file_version # Mark as "attempted"
+                    last_version_processed = self.csv_file_version # mark as "attempted"
                     continue
 
                 last_version_processed = self.csv_file_version
                 total_rows = len(self.csv_data)
     
-                # This loop "cancels" itself if mode changes OR a new file version is requested
+                # this loop "cancels" itself if mode changes or a new file version is requested
                 while (self.client.running and 
                     self.client.mode == 'csv' and 
                     self.csv_file_version == last_version_processed):
                     
-                    # --- JUMP HANDLING ---
+                    # jump handling
                     if self.csv_jumped:
-                        self.csv_base_timestamp = None  # Force timing re-anchor
-                        self.csv_jumped = False         # CLEAR the flag so we don't loop here
-                        # Optional: yield slightly to let state settle
-                        await asyncio.sleep(0) 
+                        self.csv_base_timestamp = None  # force timing re-anchor
+                        self.csv_jumped = False         # clear the flag
 
                     if self.csv_index >= total_rows:
                         await self.notify_completion(total_rows)
@@ -81,45 +79,45 @@ class CSVEngine:
                         await asyncio.sleep(0.1)
                         continue
 
-                    # --- TIMING LOGIC ---
+                    # timing control
                     now = time.time()
                     
-                    # If we just jumped or unpaused, this will be None
                     if self.csv_base_timestamp is None:
+                        # new file selected, paused, or jumped
                         self.csv_base_timestamp = now
-                        # Re-anchor to the CSV timestamp of the NEW current index
+                        # re-anchor to the CSV timestamp of the new current index
                         self._current_csv_anchor_ts = self.csv_data[min(self.csv_index, total_rows-1)]['timestamp']
 
-                    # Calculate how much "CSV time" has passed since we anchored
+                    # calculate how much "CSV time" has passed since the anchor
                     elapsed_seconds = (now - self.csv_base_timestamp) * self.csv_playback_speed
                     target_ts = self._current_csv_anchor_ts + (elapsed_seconds * 1000000)
 
-                    # --- BATCH SEND ---
+                    # enqueue messages until we catch up to the target timestamp, or if a mode change/jump happens
                     while (self.csv_index < total_rows and 
                         self.csv_data[self.csv_index]['timestamp'] <= target_ts):
                         
-                        if self.client.mode != 'csv' or self.csv_jumped: # Break batch if another jump happens
+                        if self.client.mode != 'csv' or self.csv_jumped:
                             break 
                             
                         msg = self.csv_data[self.csv_index]
-                        await self.client.send_can_message(msg['can_id'], msg['data'], msg['bus_id'])
+                        await self.client.enqueue_can_message(msg['can_id'], msg['data'], msg['bus_id'])
                         
                         self.csv_index += 1
 
-                    # Periodic progress update to UI (every ~0.5s)
+                    # periodic progress update to UI (every ~0.5s)
                     if time.time() - getattr(self, 'last_progress_update', 0) > 0.5:
                         self.last_progress_update = time.time()
                         await self.send_progress_update(self.csv_data, self.csv_index)
 
-                    await asyncio.sleep(0.001) # Yield to other tasks (heartbeat, command_receiver)
+                    await asyncio.sleep(0.001) # yield to other tasks (heartbeat, command_receiver)
 
-                print(f"ℹ️ CSV Manager exited replay loop (Mode: {self.client.mode})")
+                print(f"ℹ️ CSV Player exited replay loop (Mode: {self.client.mode})")
 
             except Exception as e:
-                print(f"❌ Error in CSV manager: {e}")
+                print(f"❌ Error in CSV Player: {e}")
                 await asyncio.sleep(1)
 
-        print("🛑 CSV Manager shut down.")
+        print("🛑 CSV Player shut down.")
 
     def parse_csv_file(self, file_path):
         # parse the CSV file and return a list of messages with timestamp, can_id, bus_id, and data bytes
@@ -129,26 +127,23 @@ class CSVEngine:
                 reader = csv.DictReader(f)
                 for row in reader:
                     try:
-                        # Flexible header detection
                         ts = int(row.get('Time Stamp', row.get('timestamp', 0)))
                         can_id = int(row.get('ID', row.get('id', row.get('can_id', '0'))), 16)
                         bus_id = int(row.get('bus', row.get('bus_id', 0)))
 
-                        # Extract D1 through D12
                         data_bytes = []
                         for i in range(1, 13):
                             val = row.get(f'D{i}')
-                            # Check if the value exists and isn't just whitespace
+                            # check if the value exists and isn't just whitespace
                             if val and val.strip():
                                 try:
-                                    # Convert hex string to integer
+                                    # convert hex string to integer
                                     data_bytes.append(int(val.strip(), 16))
                                 except ValueError:
-                                    # If there's "garbage" (e.g., 'GG'), treat it as the end of the data
                                     print(f"⚠️ Warning: Invalid hex data '{val}' at D{i}. Stopping payload here.")
                                     break
                             else:
-                                # End of data payload (empty cell or missing key)
+                                # end of data payload (empty cell or missing key)
                                 break
                         
                         csv_data.append({
@@ -158,7 +153,7 @@ class CSVEngine:
                             'data': bytes(data_bytes)
                         })
                     except (ValueError, TypeError):
-                        continue # Skip malformed rows
+                        continue # skip malformed rows
             return csv_data
         except Exception as e:
             print(f"❌ File Load Error: {e}")
@@ -238,15 +233,16 @@ class CSVEngine:
         print(f"[DEBUG] Response sent successfully")
 
     async def handle_select_csv(self, data):
+        # server selects a CSV file for replay
         filename = data.get('filename')
         print(f"Received CSV selection: {filename}")
         path = os.path.join(LOGS_DIR, filename)
 
         if os.path.exists(path):
             self.client.mode = 'idle'
-            # flush message queue TODO
 
-            self.client.flush_message_queue() # Clear any pending messages to avoid sending old messages after switching files
+            # clear queue
+            self.client.flush_message_queue()
             await asyncio.sleep(0.05) 
             
             self.csv_file = path
@@ -254,8 +250,8 @@ class CSVEngine:
             self.csv_paused = False
             self.csv_jumped = True
             self.csv_base_timestamp = None
-            self.csv_file_version += 1 # Increment version to signal a new file has been loaded
-            self.csv_data = self.parse_csv_file(self.csv_file) # Pre-load CSV data to catch parsing errors early and get metadata for UI
+            self.csv_file_version += 1 # increment version to signal a new file has been loaded
+            self.csv_data = self.parse_csv_file(self.csv_file)
             
             self.client.mode = 'csv'
             print(f"Switched to CSV mode: {self.csv_file}")
@@ -295,6 +291,7 @@ class CSVEngine:
             }))
 
     async def handle_csv_jump_time(self, data):
+        # jump forward/backward by a specific number of seconds
         seconds = data.get('seconds', 0)
         if self.csv_data: 
             # use current index timestamp or last available timestamp
@@ -348,7 +345,8 @@ class CSVEngine:
             }))
 
     async def handle_csv_restart(self, data):
+        # restart current CSV replay
         if self.client.mode == 'idle' and self.csv_file:
-            # Wrap the path/filename in a dict so handle_select_csv can read it
+            # wrap the path/filename in a dict so handle_select_csv can read it
             filename = os.path.basename(self.csv_file)
             await self.handle_select_csv({'filename': filename})
