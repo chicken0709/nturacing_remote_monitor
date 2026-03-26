@@ -1,0 +1,354 @@
+"""
+CSV Engine for NTURT Remote Monitor (Client)
+====================================
+This module handles CSV file loading and replay functionality.
+"""
+
+import os
+import csv
+import json
+import time
+import glob
+import asyncio
+from datetime import datetime
+
+CSV_REPLAY_SPEED = 1.0
+LOGS_DIR = '../LOGS'
+
+class CSVEngine:
+    def __init__ (self, client):
+        self.client = client            # reference to the main client for sending messages and accessing state
+
+        self.csv_file = None            # currently loaded CSV file path
+        self.csv_paused = False         # pause flag for replay control
+        self.csv_data = []              # store CSV data
+        self.csv_index = 0              # current replay index
+        self.csv_start_time = None      # replay start time (real time)
+        self.csv_base_timestamp = None  # csv base timestamp
+        self.csv_file_version = 0       # csv file version for detecting changes (incremented on each file selection)
+        self.csv_jumped = False         # flag to indicate if a jump command was received or if we just switched to a new file (trigger time re-anchoring in the replay loop)
+        self.csv_playback_speed = CSV_REPLAY_SPEED # playback speed multiplier 
+
+    async def csv_player(self):
+        last_version_processed = -1
+        
+        while self.client.running:
+            try:
+                # state check
+                # if not in CSV mode, or already finished the current version, just wait
+                if self.client.mode != 'csv' or self.csv_file_version == last_version_processed:
+                    await asyncio.sleep(0.2) 
+                    continue
+
+                # load the new CSV file for replay
+                print(f"🎬 Starting CSV replay from: {self.csv_file}")
+                print(f"🕐 CSV時間範圍: {self.csv_data[0]['timestamp']} - {self.csv_data[-1]['timestamp']}")
+                print(f"⏱️ 預計回放時長: {(self.csv_data[-1]['timestamp'] - self.csv_data[0]['timestamp']) / 1000000:.2f} 秒")
+                
+                if not self.csv_data:
+                    print("⚠️ Failed to load CSV or file empty. Switching to idle.")
+                    self.client.mode = 'idle'
+                    last_version_processed = self.csv_file_version # Mark as "attempted"
+                    continue
+
+                last_version_processed = self.csv_file_version
+                total_rows = len(self.csv_data)
+    
+                # This loop "cancels" itself if mode changes OR a new file version is requested
+                while (self.client.running and 
+                    self.client.mode == 'csv' and 
+                    self.csv_file_version == last_version_processed):
+                    
+                    # --- JUMP HANDLING ---
+                    if self.csv_jumped:
+                        self.csv_base_timestamp = None  # Force timing re-anchor
+                        self.csv_jumped = False         # CLEAR the flag so we don't loop here
+                        # Optional: yield slightly to let state settle
+                        await asyncio.sleep(0) 
+
+                    if self.csv_index >= total_rows:
+                        await self.notify_completion(total_rows)
+                        self.client.mode = 'idle'
+                        await self.client.websocket.send(json.dumps({
+                            'type': 'mode_changed',
+                            'mode': 'idle',
+                            'filename': self.csv_file
+                        }))
+                        break
+
+                    if self.csv_paused:
+                        self.csv_base_timestamp = None 
+                        await asyncio.sleep(0.1)
+                        continue
+
+                    # --- TIMING LOGIC ---
+                    now = time.time()
+                    
+                    # If we just jumped or unpaused, this will be None
+                    if self.csv_base_timestamp is None:
+                        self.csv_base_timestamp = now
+                        # Re-anchor to the CSV timestamp of the NEW current index
+                        self._current_csv_anchor_ts = self.csv_data[min(self.csv_index, total_rows-1)]['timestamp']
+
+                    # Calculate how much "CSV time" has passed since we anchored
+                    elapsed_seconds = (now - self.csv_base_timestamp) * self.csv_playback_speed
+                    target_ts = self._current_csv_anchor_ts + (elapsed_seconds * 1000000)
+
+                    # --- BATCH SEND ---
+                    while (self.csv_index < total_rows and 
+                        self.csv_data[self.csv_index]['timestamp'] <= target_ts):
+                        
+                        if self.client.mode != 'csv' or self.csv_jumped: # Break batch if another jump happens
+                            break 
+                            
+                        msg = self.csv_data[self.csv_index]
+                        await self.client.send_can_message(msg['can_id'], msg['data'], msg['bus_id'])
+                        
+                        self.csv_index += 1
+
+                    # Periodic progress update to UI (every ~0.5s)
+                    if time.time() - getattr(self, 'last_progress_update', 0) > 0.5:
+                        self.last_progress_update = time.time()
+                        await self.send_progress_update(self.csv_data, self.csv_index)
+
+                    await asyncio.sleep(0.001) # Yield to other tasks (heartbeat, command_receiver)
+
+                print(f"ℹ️ CSV Manager exited replay loop (Mode: {self.client.mode})")
+
+            except Exception as e:
+                print(f"❌ Error in CSV manager: {e}")
+                await asyncio.sleep(1)
+
+        print("🛑 CSV Manager shut down.")
+
+    def parse_csv_file(self, file_path):
+        # parse the CSV file and return a list of messages with timestamp, can_id, bus_id, and data bytes
+        csv_data = []
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        # Flexible header detection
+                        ts = int(row.get('Time Stamp', row.get('timestamp', 0)))
+                        can_id = int(row.get('ID', row.get('id', row.get('can_id', '0'))), 16)
+                        bus_id = int(row.get('bus', row.get('bus_id', 0)))
+
+                        # Extract D1 through D12
+                        data_bytes = []
+                        for i in range(1, 13):
+                            val = row.get(f'D{i}')
+                            # Check if the value exists and isn't just whitespace
+                            if val and val.strip():
+                                try:
+                                    # Convert hex string to integer
+                                    data_bytes.append(int(val.strip(), 16))
+                                except ValueError:
+                                    # If there's "garbage" (e.g., 'GG'), treat it as the end of the data
+                                    print(f"⚠️ Warning: Invalid hex data '{val}' at D{i}. Stopping payload here.")
+                                    break
+                            else:
+                                # End of data payload (empty cell or missing key)
+                                break
+                        
+                        csv_data.append({
+                            'timestamp': ts,
+                            'can_id': can_id,
+                            'bus_id': bus_id,
+                            'data': bytes(data_bytes)
+                        })
+                    except (ValueError, TypeError):
+                        continue # Skip malformed rows
+            return csv_data
+        except Exception as e:
+            print(f"❌ File Load Error: {e}")
+            return None
+    
+    async def send_progress_update(self, csv_data, index):
+        # sends replay progress to the server
+        total = len(csv_data)
+        # clamp index to valid range
+        safe_idx = min(index, total - 1)
+        
+        current_ts = csv_data[safe_idx]['timestamp']
+        start_ts = csv_data[0]['timestamp']
+        total_ts = csv_data[-1]['timestamp']
+
+        await self.client.websocket.send(json.dumps({
+            'type': 'csv_progress',
+            'percentage': round((index / total) * 100, 2),
+            'current_time': round((current_ts - start_ts) / 1000000, 2),
+            'total_time': round((total_ts - start_ts) / 1000000, 2),
+            'current_index': index,
+            'total_count': total
+        }))
+
+    async def notify_completion(self, total_rows):
+        # inform the server that CSV replay has completed
+        if self.client.websocket:
+            await self.client.websocket.send(json.dumps({
+                'type': 'csv_status',
+                'status': 'completed',
+                'message': f'CSV replay completed: {total_rows} rows.',
+                'row_count': total_rows
+            }))
+        print("⏸️ CSV replay finished. Waiting for next command...")
+
+    def scan_csv_files(self):
+        # scan csv files in LOGS_DIR and return a list of file info
+        try:
+            csv_files = []
+            pattern = os.path.join(LOGS_DIR, '*.csv')
+            
+            for filepath in glob.glob(pattern):
+                filename = os.path.basename(filepath)
+                file_stat = os.stat(filepath)
+                file_time = datetime.fromtimestamp(file_stat.st_mtime)
+                file_size = file_stat.st_size
+                
+                csv_files.append({
+                    'filename': filename,
+                    'path': filepath,
+                    'modified': file_time.isoformat(),
+                    'size': file_size,
+                    'size_mb': round(file_size / 1024 / 1024, 2)
+                })
+            
+            # sort by modified time (newest first)
+            csv_files.sort(key=lambda x: x['modified'], reverse=True)
+            return csv_files
+        except Exception as e:
+            print(f"Error scanning CSV files: {e}")
+            return []
+        
+    async def handle_request_csv_list(self, data):
+        # server requests CSV file list
+        print("[DEBUG] Received request for CSV file list")
+        csv_files = self.scan_csv_files()
+        print(f"[DEBUG] Found {len(csv_files)} CSV files")
+        
+        response = {
+            'type': 'csv_list',
+            'files': csv_files,
+            'count': len(csv_files)
+        }
+
+        print(f"[DEBUG] Sending response with {len(csv_files)} files")
+        await self.client.websocket.send(json.dumps(response))
+        print(f"[DEBUG] Response sent successfully")
+
+    async def handle_select_csv(self, data):
+        filename = data.get('filename')
+        print(f"Received CSV selection: {filename}")
+        path = os.path.join(LOGS_DIR, filename)
+
+        if os.path.exists(path):
+            self.client.mode = 'idle'
+            # flush message queue TODO
+
+            self.client.flush_message_queue() # Clear any pending messages to avoid sending old messages after switching files
+            await asyncio.sleep(0.05) 
+            
+            self.csv_file = path
+            self.csv_index = 0
+            self.csv_paused = False
+            self.csv_jumped = True
+            self.csv_base_timestamp = None
+            self.csv_file_version += 1 # Increment version to signal a new file has been loaded
+            self.csv_data = self.parse_csv_file(self.csv_file) # Pre-load CSV data to catch parsing errors early and get metadata for UI
+            
+            self.client.mode = 'csv'
+            print(f"Switched to CSV mode: {self.csv_file}")
+        
+            await self.client.websocket.send(json.dumps({
+                'type': 'mode_changed',
+                'mode': 'csv',
+                'file': filename
+            }))
+        else:
+            print(f"CSV file not found: {self.csv_file}")
+            await self.client.websocket.send(json.dumps({
+                'type': 'error',
+                'message': f'File not found: {filename}'
+            }))
+
+    async def handle_csv_pause(self, data):
+        # pause/resume csv replay 
+        self.csv_paused = not self.csv_paused
+        print(f"CSV replay {'paused' if self.csv_paused else 'resumed'}")
+
+    async def handle_csv_jump_percentage(self, data):
+        # jump to a specific percentage in the CSV file
+        percentage = data.get('percentage', 0)
+        if self.csv_data:
+            percentage = max(0, min(100, percentage))
+            target_index = int(len(self.csv_data) * percentage / 100)
+            self.csv_index = target_index
+            self.csv_jumped = True
+            print(f"Jumped to {percentage:.2f}% ({self.csv_index}/{len(self.csv_data)})")
+            
+            await self.client.websocket.send(json.dumps({
+                'type': 'csv_status',
+                'status': 'jumped',
+                'percentage': percentage,
+                'index': self.csv_index
+            }))
+
+    async def handle_csv_jump_time(self, data):
+        seconds = data.get('seconds', 0)
+        if self.csv_data: 
+            # use current index timestamp or last available timestamp
+            idx = min(self.csv_index, len(self.csv_data) - 1)
+            current_timestamp = self.csv_data[idx]['timestamp']
+            target_timestamp = current_timestamp + (seconds * 1000000)
+            
+            # clamp the target_index within valid bounds
+            target_index = self.csv_index
+            if seconds > 0:
+                for i in range(self.csv_index, len(self.csv_data)):
+                    target_index = i
+                    if self.csv_data[i]['timestamp'] >= target_timestamp:
+                        break
+            else:
+                for i in range(self.csv_index, -1, -1):
+                    target_index = i
+                    if self.csv_data[i]['timestamp'] <= target_timestamp:
+                        break
+
+            # clamp csv_index to valid range
+            self.csv_index = min(max(0, target_index), len(self.csv_data) - 1)
+            self.csv_jumped = True
+            
+            # calculate progress
+            progress = (self.csv_index / len(self.csv_data)) * 100
+            print(f"Jumped to {progress:.2f}% ({self.csv_index}/{len(self.csv_data)})")
+            
+            # send update to server
+            await self.client.websocket.send(json.dumps({
+                'type': 'csv_status',
+                'status': 'jumped',
+                'progress': round(progress, 2),
+                'index': self.csv_index,
+                'seconds': seconds
+            }))
+
+            await self.send_progress_update(self.csv_data, self.csv_index)
+
+    async def handle_csv_set_speed(self, data):
+        # set replay speed
+        speed = data.get('speed', 1.0)
+        if speed > 0:
+            self.csv_playback_speed = speed
+            print(f"replay speed set to {speed}x")
+            
+            await self.client.websocket.send(json.dumps({
+                'type': 'csv_status',
+                'status': 'speed_changed',
+                'speed': speed
+            }))
+
+    async def handle_csv_restart(self, data):
+        if self.client.mode == 'idle' and self.csv_file:
+            # Wrap the path/filename in a dict so handle_select_csv can read it
+            filename = os.path.basename(self.csv_file)
+            await self.handle_select_csv({'filename': filename})
