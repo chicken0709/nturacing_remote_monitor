@@ -242,7 +242,7 @@ class CSVEngine:
             self.client.mode = 'idle'
 
             # clear queue
-            self.client.flush_message_queue()
+            self.client.cleanup()
             await asyncio.sleep(0.05) 
             
             self.csv_file = path

@@ -28,10 +28,9 @@ class CANDataClient:
     def __init__(self, server_url):
         self.server_url = server_url
         self.websocket = None
+        
         self.running = True
-
         self.mode = 'realtime'        # 'realtime' or 'csv' or 'idle'
-        self.last_heartbeat = time.time()
         
         # message queue and statistics
         self.message_count = 0
@@ -41,10 +40,9 @@ class CANDataClient:
         self.last_send_report = time.time()
         
         # duplicate messages filtering
-        self.total_can_received = 0   # total CAN messages received
-        self.filtered_duplicates = 0  # number of filtered duplicate messages
+        self.total_can_received = 0   
+        self.filtered_duplicates = 0  
         self.latest_messages = {}     # key: (bus_id, can_id), value: message_data
-        self.cache_lock = asyncio.Lock()
 
         # initialize CAN engine
         self.can_engine = CANEngine(self)
@@ -74,7 +72,6 @@ class CANDataClient:
         while self.running:
             if await self.connect():
                 try:
-                    # TaskGroup (Python 3.11+)
                     async with asyncio.TaskGroup() as tg:
                         # start all workers
                         t1 = tg.create_task(self.can_engine.read_can_bus(0))
@@ -100,7 +97,8 @@ class CANDataClient:
                         except Exception:
                             pass
                     self.websocket = None
-                    self.flush_message_queue() 
+                    self.cleanup() 
+                    await asyncio.sleep(0.05) 
                     
                 print(f"🔄 Reconnecting in {RECONNECT_DELAY}s...")
                 await asyncio.sleep(RECONNECT_DELAY)
@@ -124,185 +122,78 @@ class CANDataClient:
         return False
     
     async def enqueue_can_message(self, can_id, data, bus_id):
-        # enqueue CAN message with duplication filtering
+        # enqueue CAN message for sending, with duplication filtering for realtime mode
         self.total_can_received += 1
-        
-        # discard data immediately if not connected, do not accumulate backlog
-        if not self.websocket:
-            return False
-        
-        message_key = (bus_id, can_id)
-        data_list = list(data)
+        if not self.websocket: return False
+
         message_data = {
-            'bus_id': bus_id,
-            'can_id': can_id,
-            'data': data_list,
-            'timestamp': time.time()
+            'bus_id': bus_id, 'can_id': can_id, 
+            'data': list(data), 'timestamp': time.time()
         }
-        
-        # under csv mode, skip duplication filtering and directly enqueue all messages
-        if self.mode == 'csv':
-            try:
-                self.message_queue.put_nowait(message_data)
+
+        # duplication filtering
+        if self.mode != 'csv':
+            key = (bus_id, can_id)
+            cached = self.latest_messages.get(key)
+            if cached and cached['data'] == message_data['data']:
+                self.filtered_duplicates += 1
+                cached['timestamp'] = message_data['timestamp']
                 return True
-            except asyncio.QueueFull:
-                self.dropped_messages += 1
-                return False
-        
-        # single message mode for testing
-        if not USE_BATCH_MODE:
-            if self.websocket:
-                try:
-                    single_message = {
-                        'type': 'can_message',
-                        'bus_id': bus_id,
-                        'can_id': can_id,
-                        'data': data_list,
-                        'timestamp': time.time()
-                    }
-                    await self.websocket.send(json.dumps(single_message))
-                    self.message_count += 1
-                    return True
-                except Exception as e:
-                    return False
+            self.latest_messages[key] = message_data
+
+        try:
+            self.message_queue.put_nowait(message_data)
+            return True
+        except asyncio.QueueFull:
+            self.dropped_messages += 1
+            if self.dropped_messages % 100 == 0:
+                print(f"Warning: Queue full ({self.message_queue.qsize()}), data cached. Delayed: {self.dropped_messages}")
             return False
-        # batch mode with duplication filtering
-        should_queue = False
-        async with self.cache_lock:
-            # duplication check
-            if message_key in self.latest_messages:
-                old_data = self.latest_messages[message_key]['data']
-                # add to queue only if data changed, otherwise just update timestamp in cache
-                if old_data != data_list:
-                    should_queue = True
-                    self.latest_messages[message_key] = message_data
-                else:
-                    self.filtered_duplicates += 1
-                    self.latest_messages[message_key]['timestamp'] = message_data['timestamp']
-            else:
-                # new CAN ID, add to cache and queue
-                should_queue = True
-                self.latest_messages[message_key] = message_data
-        
-        if should_queue:
-            try:
-                # add full message data to the queue, not just the key
-                self.message_queue.put_nowait(message_data)
-                return True
-            except asyncio.QueueFull:
-                # dropped messages
-                self.dropped_messages += 1
-                if self.dropped_messages % 100 == 0:
-                    print(f"Warning: Queue full ({self.message_queue.qsize()}), data cached. Delayed: {self.dropped_messages}")
-                return False
-        return True
-    
+
     async def batch_sender(self):
         # send batched messages to the server
-        try:
-            batch = []
-            last_send_time = time.time()
-            
-            # wait for websocket connection to be established
-            while self.running and not self.websocket:
-                await asyncio.sleep(0.1)
-            
-            print("✅ Connected - Starting batch sender")
-            
-            # main loop for sending batches
+        print("✅ Connected - Starting batch sender")
+
+        try: 
             while self.running:
-                try:
-                    if not self.websocket:
-                        await asyncio.sleep(0.1)
-                        continue
+                batch = []
+                # wait for at least one message to avoid spin-loop
+                msg = await self.message_queue.get()
+                batch.append(msg)
+
+                # pull remaining messages up to BATCH_SIZE or until queue is empty
+                while len(batch) < BATCH_SIZE and not self.message_queue.empty():
+                    batch.append(self.message_queue.get_nowait())
+
+                # send the batch
+                if self.websocket and batch:
                     
-                    try:
-                        # try to get messages from queue with a timeout of BATCH_TIMEOUT
-                        timeout = max(0.001, BATCH_TIMEOUT - (time.time() - last_send_time))
-                        message = await asyncio.wait_for(
-                            self.message_queue.get(),
-                            timeout=timeout
-                        )
-                        batch.append(message)
-                        
-                        # if batch size reached or timeout, send batch
-                        current_time = time.time()
-                        should_send = (
-                            len(batch) >= BATCH_SIZE or
-                            (batch and current_time - last_send_time >= BATCH_TIMEOUT)
-                        )
-                        
-                        if should_send:
-                            # send batch
-                            batch_data = {
-                                'type': 'can_batch',
-                                'messages': batch,
-                                'count': len(batch)
-                            }
-                            try:
-                                await self.websocket.send(json.dumps(batch_data))
-                                self.message_count += len(batch)
-                                self.sent_batches += 1
-                                
-                                # print stastics periodically
-                                if time.time() - self.last_send_report > 5:
-                                    filter_rate = 0
-                                    if self.total_can_received > 0:
-                                        filter_rate = (self.filtered_duplicates / self.total_can_received) * 100
-                                    print(f"📊 Sent: {self.message_count} msgs | Received: {self.total_can_received} | Filtered: {filter_rate:.1f}% | Queue: {self.message_queue.qsize()}")
-                                    self.last_send_report = time.time()
-                            except Exception as send_err:
-                                print(f"Error sending batch: {send_err}")
-                                raise
-                            
-                            batch = []
-                            last_send_time = current_time
-                            
-                    except asyncio.TimeoutError:
-                        # timeout, if batch is not empty, send it immediately
-                        if batch:
-                            batch_data = {
-                                'type': 'can_batch',
-                                'messages': batch,
-                                'count': len(batch)
-                            }
-                            try:
-                                await self.websocket.send(json.dumps(batch_data))
-                                self.message_count += len(batch)
-                                self.sent_batches += 1
-                            except Exception as send_err:
-                                print(f"Error sending batch (timeout): {send_err}")
-                                raise
-                            
-                            batch = []
-                            last_send_time = time.time()
-                            
-                except (websockets.exceptions.ConnectionClosed, websockets.exceptions.WebSocketException):
-                    # connection closed, clear the batch and the entire queue
-                    batch = []
-                    queue_size = self.message_queue.qsize()
-                    if queue_size > 0:
-                        print(f"🗑️  Connection lost - Discarding {queue_size} queued messages")
-                        # clear queue
-                        while not self.message_queue.empty():
-                            try:
-                                self.message_queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                break
-                    print("⚠️  Batch sender stopped - waiting for reconnection")
-                    break
-                except asyncio.CancelledError:
-                    print("Batch sender: Task cancelled", flush=True)
-                    break
-                except Exception as e:
-                    print(f"Error in batch sender: {e}", flush=True)
-                    import traceback
-                    traceback.print_exc()
-                    await asyncio.sleep(0.1)
-        except Exception as outer_e:
-            print(f"FATAL error in batch_sender: {outer_e}", flush=True)
-            import traceback
-            traceback.print_exc()
+                    await self.websocket.send(json.dumps({
+                        'type': 'can_batch', 
+                        'messages': batch, 
+                        'count': len(batch)
+                    }))
+                    self.message_count += len(batch)
+                    self.sent_batches += 1
+
+                    # print stastics periodically
+                    if time.time() - self.last_send_report > 5:
+                        filter_rate = 0
+                        if self.total_can_received > 0:
+                            filter_rate = (self.filtered_duplicates / self.total_can_received) * 100
+                        print(f"📊 Sent: {self.message_count} msgs | Received: {self.total_can_received} | Filtered: {filter_rate:.1f}% | Queue: {self.message_queue.qsize()}")
+                        self.last_send_report = time.time()
+
+                # small yield to prevent CPU hogging if BATCH_SIZE is 1
+                if BATCH_SIZE == 1:
+                    await asyncio.sleep(BATCH_TIMEOUT)
+        except (websockets.exceptions.ConnectionClosed, websockets.exceptions.WebSocketException):
+            print("⚠️ Batch sender stopped - waiting for reconnection")
+        except Exception as e:
+            print(f"Error in batch sender: {e}")
+        finally:
+            self.cleanup()
+            await asyncio.sleep(0.05)
 
     async def send_heartbeat(self):
         # send heartbeat message to the server
@@ -328,7 +219,6 @@ class CANDataClient:
                 'csv_paused': self.csv_engine.csv_paused
             }
             await self.websocket.send(json.dumps(heartbeat_data))
-            self.last_heartbeat = time.time()
         except (websockets.exceptions.ConnectionClosed, websockets.exceptions.WebSocketException):
             # Connection closed, stop trying to send
             pass
@@ -381,9 +271,7 @@ class CANDataClient:
         self.mode = 'realtime'
 
         # clear the message queue
-        self.flush_message_queue() 
-        
-        # small sleep to let any 'in-thread' executions finish
+        self.cleanup() 
         await asyncio.sleep(0.05) 
         
         await self.websocket.send(json.dumps({
@@ -391,18 +279,18 @@ class CANDataClient:
             'mode': 'realtime',
         }))
         
-    def flush_message_queue(self):
-        """Purge the queue synchronously to avoid event loop naming conflicts"""
+    def cleanup(self):
+        # cleanup the message queue and cached messages
         flushed_count = 0
-        # 1. Empty the queue
-        try:
-            while not self.message_queue.empty():
+        # empty the queue
+        while not self.message_queue.empty():
+            try:
                 self.message_queue.get_nowait()
                 flushed_count += 1
-        except Exception as e:
-            print(f"Note: Queue empty during flush: {e}")
+            except asyncio.QueueEmpty:
+                break
 
-        # 2. Clear the cache (If you use a lock, you need a task)
+        # clear the cached messages
         self.latest_messages.clear()
         print(f"🧹 Flushed {flushed_count} messages.")
     
