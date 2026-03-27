@@ -468,3 +468,54 @@ body {
     0% { width: 0; height: 0; opacity: 1; }
     100% { width: 60px; height: 60px; opacity: 0; }
 }
+
+.gps-dashboard {
+    display: grid;
+    grid-template-columns: 1fr; /* Mobile: 1 column */
+    gap: 1.5rem;
+    background: rgba(15, 23, 42, 0.8);
+    padding: 1.5rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+@media (min-width: 1024px) {
+    .gps-dashboard {
+        grid-template-columns: 1fr 1fr; /* Desktop: 2 equal columns */
+    }
+}
+
+.source-panel {
+    background: rgba(30, 41, 59, 0.5);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    border: 1px solid rgba(71, 85, 105, 0.3);
+}
+
+.data-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.data-label {
+    color: #94a3b8;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.data-value {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    color: #f8fafc;
+    font-weight: 600;
+}
+
+.speed-display {
+    text-align: center;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 2px dashed rgba(255, 255, 255, 0.1);
+}
