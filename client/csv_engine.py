@@ -13,7 +13,7 @@ import asyncio
 from datetime import datetime
 
 CSV_REPLAY_SPEED = 1.0
-LOGS_DIR = '../LOGS'
+LOGS_DIR = '../../LOGS'
 
 class CSVEngine:
     def __init__ (self, client):

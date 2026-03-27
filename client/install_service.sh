@@ -4,7 +4,7 @@
 echo "Installing NTURT Client service..."
 
 # Copy the service file to systemd directory # TODO
-sudo cp /home/pi/Desktop/GUI_SC-dev/nturt-client.service /etc/systemd/system/
+sudo cp /home/pi/RPIDesktop/nturacing_remote_monitor/client/nturt-client.service /etc/systemd/system/
 
 # Reload systemd
 sudo systemctl daemon-reload

@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/Desktop/GUI_SC-dev # TODO
-ExecStart=/usr/bin/python3 /home/pi/Desktop/nturacing_remote_monitor/client_vehicle.py # TODO
+WorkingDirectory=/home/pi/RPIDesktop/nturacing_remote_monitor/client # TODO
+ExecStart=/usr/bin/python3 /home/pi/RPIDesktop/nturacing_remote_monitor/client/client_vehicle.py # TODO
 Restart=always
 RestartSec=10
 StandardOutput=journal
