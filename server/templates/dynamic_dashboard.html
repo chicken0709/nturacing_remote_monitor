@@ -40,89 +40,6 @@
                 </div>
             </div>
         </div>
-        <!-- Playback Controls -->
-        <div id="floating-controls" class="floating-control-panel">
-            <div class="floating-header">
-                <h3 class="floating-title">PLAYER CONTROL</h3>
-                <div class="floating-actions">
-                    <button id="minimize-btn" class="control-action-btn" title="Xs">➖</button>
-                    <button id="close-btn" class="control-action-btn" title="close">✖️</button>
-                </div>
-            </div>
-            
-            <div id="control-content" class="floating-content">
-                <div class="control-row">
-                    <div class="control-group">
-                        <button id="backward-btn" class="control-btn secondary">
-                            ⏪ -10s
-                        </button>
-                        <button id="play-pause-btn" class="control-btn primary">
-                            ⏸️ STOP
-                        </button>
-                        <button id="forward-btn" class="control-btn secondary">
-                            ⏩ +10s
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="control-row">
-                    <div class="control-group">
-                        <button id="mode-toggle-btn" class="control-btn secondary" title="Switch between CSV and CAN mode">
-                            📁 CSV Mode
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- CAN Logging Controls -->
-                <div class="control-row">
-                    <div class="control-group">
-                        <button id="start-logging-btn" class="control-btn secondary" title="Start CAN logging">
-                            🟢 START LOG
-                        </button>
-                        <button id="stop-logging-btn" class="control-btn secondary" title="Stop CAN logging">
-                            🔴 STOP LOG
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="control-row">
-                    <div class="control-group">
-                        <label class="control-label">SPEED:</label>
-                        <select id="speed-select" class="control-select">
-                            <option value="0.1">0.1x</option>
-                            <option value="0.5">0.5x</option>
-                            <option value="1" selected>1x</option>
-                            <option value="2">2x</option>
-                            <option value="5">5x</option>
-                            <option value="10">10x</option>
-                        </select>
-                    </div>
-                    
-                    <div class="control-group">
-                        <label class="control-label">FILE:</label>
-                        <select id="file-select" class="control-select">
-                            <option value="">Loading...</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <div class="control-row">
-                    <div class="progress-container">
-                        <div class="time-display">
-                            <span id="current-time" class="time-text">00:00</span>
-                            <span id="total-time" class="time-text">00:00</span>
-                        </div>
-                        <input type="range" id="progress-bar" min="0" max="100" value="0" 
-                            class="progress-slider">
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 懸浮控制面板觸發按鈕 -->
-        <button id="show-controls-btn" class="show-controls-btn" style="display: none;">
-            CONTROL PANEL
-        </button>
 
         <!-- Battery Information Bar -->
         <div class="glass-card rounded-lg p-4 mb-6">
@@ -187,28 +104,6 @@
                             <span id="battery-current-value" class="text-orange-400 font-bold">--A</span>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- CAN Logging Status Bar -->
-        <div class="glass-card rounded-lg p-4 mb-6">
-            <h3 class="text-lg font-bold text-white mb-3 flex items-center">
-                <svg class="w-5 h-5 mr-2 text-red-500" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-                </svg>
-                CAN Logging Status
-            </h3>
-            
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <div id="canlogging-status" class="status-indicator idle"></div>
-                        <span id="canlogging-status-text" class="text-lg font-bold text-slate-300">IDLE</span>
-                    </div>
-                </div>
-                <div class="text-right">
-                    <div id="canlogging-start-time" class="text-sm text-slate-400">No active recording</div>
                 </div>
             </div>
         </div>
