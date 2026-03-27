@@ -45,75 +45,75 @@
         </div>
 
         <!-- Top Control Bar -->
-        <div class="glass-card rounded-lg p-4 mb-3">
-            <div class="flex items-center justify-center space-x-8">
+        <div class="glass-card rounded-lg p-4 mb-3 overflow-hidden">
+            <div class="flex flex-row flex-nowrap items-center justify-center gap-4 md:gap-8 lg:gap-12 w-full mx-auto max-w-5xl">
                 <!-- RL Motor RPM -->
-                <div class="text-center">
-                    <div class="mini-gauge">
-                        <div class="mini-circular-gauge" id="rpm-rl-gauge" style="--rpm-fill: 0deg">
-                            <div class="rpm-gauge-bg"></div>
+                <div class="flex flex-col items-center min-w-0">
+                    <div class="mini-gauge scale-75 sm:scale-90 lg:scale-100">
+                        <div class="mini-circular-gauge" id="rpm-rl-gauge">
                             <div class="mini-gauge-inner">
-                                <div id="rpm-rl-value" class="text-lg font-bold text-green-400">0</div>
-                                <div class="text-sm text-slate-400">RPM</div>
+                                <div id="rpm-rl-value" class="text-base lg:text-lg font-bold text-green-400">0</div>
+                                <div class="text-[10px] text-slate-400 uppercase">RPM</div>
                             </div>
                         </div>
                     </div>
-                    <div class="text-sm font-bold text-cyan-400 mt-2">RL Motor</div>
-                    <div class="text-sm font-bold text-cyan-400" id="speed-rl-value">0 km/h</div>
+                    <div class="text-[10px] lg:text-sm font-bold text-cyan-400 mt-1 truncate">RL Motor</div>
+                    <div id="speed-rl-value" class="text-[10px] lg:text-sm font-bold text-cyan-400">0 km/h</div>
                 </div>
 
                 <!-- Brake Bar -->
                 <div class="flex flex-col items-center">
-                    <div class="vertical-bar brake-bar">
+                    <div class="vertical-bar brake-bar h-12 sm:h-20 md:h-24">
                         <div class="bar-fill" id="brake-fill" style="height: 0%"></div>
                     </div>
-                    <div class="mt-4 text-center">
-                        <div class="text-lg font-bold text-red-400">BRAKE</div>
-                        <div id="brake-value" class="text-2xl font-mono text-red-300">0%</div>
+                    <div class="mt-2 text-center">
+                        <div class="text-[9px] lg:text-xs font-bold text-red-400">BRAKE</div>
+                        <div id="brake-value" class="text-xs lg:text-lg font-mono text-red-300">0%</div>
                     </div>
                 </div>
 
                 <!-- Speed Gauge -->
-                <div class="flex flex-col items-center">
-                    <div class="speed-gauge">
+                <div class="flex flex-col items-center min-w-0 px-2">
+                    <div class="speed-gauge scale-75 sm:scale-90 lg:scale-110">
                         <div class="circular-gauge" id="speed-gauge">
                             <div class="gauge-inner">
-                                <div id="speed-value" class="text-3xl font-bold text-white mb-1">0</div>
-                                <div class="text-base text-slate-400">km/h</div>
+                                <div id="speed-value" class="text-2xl sm:text-3xl lg:text-5xl font-bold text-white">0</div>
+                                <div class="text-[10px] sm:text-xs text-slate-400">km/h</div>
                             </div>
                         </div>
                     </div>
-                    <div class="mt-4 text-center">
-                        <div class="text-sm text-slate-400">Trip Distance</div>
-                        <div id="trip-distance-value" class="text-xl font-bold text-cyan-400">0.00 km</div>
+                    <div class="mt-2 text-center">
+                        <div id="trip-distance-value" class="text-xs sm:text-sm lg:text-lg font-bold text-cyan-400">
+                            0.00 km
+                        </div>
                     </div>
                 </div>
 
                 <!-- APPS Bar -->
                 <div class="flex flex-col items-center">
-                    <div class="vertical-bar apps-bar">
+                    <div class="vertical-bar apps-bar h-12 sm:h-20 md:h-24">
                         <div class="bar-fill" id="apps-fill" style="height: 0%"></div>
                     </div>
-                    <div class="mt-4 text-center">
-                        <div class="text-lg font-bold text-green-400">APPS</div>
-                        <div id="apps-value" class="text-2xl font-mono text-green-300">0%</div>
+                    <div class="mt-2 text-center">
+                        <div class="text-[9px] lg:text-xs font-bold text-green-400">APPS</div>
+                        <div id="apps-value" class="text-xs lg:text-lg font-mono text-green-300">0%</div>
                     </div>
                 </div>
 
                 <!-- RR Motor RPM -->
-                <div class="text-center">
-                    <div class="mini-gauge">
-                        <div class="mini-circular-gauge" id="rpm-rr-gauge" style="--rpm-fill: 0deg">
-                            <div class="rpm-gauge-bg"></div>
+                <div class="flex flex-col items-center min-w-0">
+                    <div class="mini-gauge scale-75 sm:scale-90 lg:scale-100">
+                        <div class="mini-circular-gauge" id="rpm-rr-gauge">
                             <div class="mini-gauge-inner">
-                                <div id="rpm-rr-value" class="text-lg font-bold text-green-400">0</div>
-                                <div class="text-sm text-slate-400">RPM</div>
+                                <div id="rpm-rr-value" class="text-base lg:text-lg font-bold text-green-400">0</div>
+                                <div class="text-[10px] text-slate-400 uppercase">RPM</div>
                             </div>
                         </div>
                     </div>
-                    <div class="text-sm font-bold text-cyan-400 mt-2">RR Motor</div>
-                    <div class="text-sm font-bold text-cyan-400" id="speed-rr-value">0 km/h</div>
+                    <div class="text-[10px] lg:text-sm font-bold text-cyan-400 mt-1 truncate">RR Motor</div>
+                    <div id="speed-rr-value" class="text-[10px] lg:text-sm font-bold text-cyan-400">0 km/h</div>
                 </div>
+
             </div>
         </div>
 

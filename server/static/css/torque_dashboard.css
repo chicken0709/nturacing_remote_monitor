@@ -90,15 +90,25 @@ body {
     50% { opacity: 0.5; }
 }
 
-/* Top Bar Styles */
+/* Responsive Vertical Bar */
 .vertical-bar {
-    width: 50px;
-    height: 160px;
+    width: 30px; /* Narrower for mobile */
+    height: 60px; /* Shorter for mobile */
     background: linear-gradient(to top, rgba(148, 163, 184, 0.1) 0%, rgba(148, 163, 184, 0.05) 100%);
-    border-radius: 25px;
+    border-radius: 15px;
     position: relative;
     overflow: hidden;
-    border: 2px solid rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+/* Tablet and Desktop scaling */
+@media (min-width: 640px) {
+    .vertical-bar {
+        width: 50px;
+        height: 160px;
+        border-radius: 25px;
+        border-width: 2px;
+    }
 }
 
 .bar-fill {
@@ -146,13 +156,6 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 1;
-}
-
-/* RPM Mini Gauge */
-.mini-gauge {
-    position: relative;
-    width: 100px;
-    height: 100px;
 }
 
 .mini-circular-gauge {
@@ -379,4 +382,12 @@ body {
     font-weight: bold;
     color: #06b6d4;
     font-family: 'Courier New', monospace;
+}
+
+.mini-gauge, .speed-gauge {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: transform 0.2s ease; /* Makes resizing feel smooth */
 }
