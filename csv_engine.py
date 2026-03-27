@@ -336,6 +336,7 @@ class CSVEngine:
         speed = data.get('speed', 1.0)
         if speed > 0:
             self.csv_playback_speed = speed
+            self.csv_jumped = True # trigger timing re-anchor with new speed
             print(f"replay speed set to {speed}x")
             
             await self.client.websocket.send(json.dumps({
