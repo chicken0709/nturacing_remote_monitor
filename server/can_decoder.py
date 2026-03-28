@@ -70,6 +70,8 @@ CAN_MESSAGE_CONFIG = {
     0x188: ("imu2", "decode_imu2_accel", "decoded"),
     0x288: ("imu2", "decode_imu2_gyro", "decoded"),
     0x488: ("imu2", "decode_imu2_quaternion", "decoded"),
+    # can logging
+    0x421: ("logging", "decode_logging_status", "raw")
 }
 
 # VCU status bit flags
@@ -166,6 +168,11 @@ class CANDecoder:
             'distance': {
                 'trip_distance_km': None,
                 'last_update': None
+            },
+            'logging': {
+                'status': None,
+                'start_time': None,
+                'last_update': None
             }
         }
 
@@ -189,7 +196,8 @@ class CANDecoder:
             'update_time': datetime.now().isoformat(),
             'vehicle_clients': len(vehicle_clients),
             'vehicle_connected': vehicle_connected,
-            'last_data_time': last_data_time
+            'last_data_time': last_data_time,
+            'logging': self.data_store['logging']
         }
         
     def decode_can_message(self, msg):
@@ -451,3 +459,12 @@ class CANDecoder:
         self.data_store['imu2']['quaternion']['x'] = decoded.get('q_x')
         self.data_store['imu2']['quaternion']['y'] = decoded.get('q_y')
         self.data_store['imu2']['quaternion']['z'] = decoded.get('q_z')
+
+    def decode_logging_status(self, data):
+        if len(data) >= 5:
+            status = data[0]
+            start_time_raw = struct.unpack('<i', data[1:5])[0]
+            start_time = datetime.fromtimestamp(start_time_raw) if start_time_raw > 0 else None
+            
+            self.data_store['logging']['status'] = status
+            self.data_store['logging']['start_time'] = start_time

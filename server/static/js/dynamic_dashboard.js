@@ -164,6 +164,8 @@ class NTURTDashboard {
             // Update vcu status
             this.updateVCUStatus(data.vcu);
 
+            // Update CAN logging status
+            this.updateCANLoggingStatus(data.logging);
         } catch (error) {
             console.error('Error updating dashboard:', error);
         }
@@ -1172,7 +1174,19 @@ class NTURTDashboard {
             this.torqueChart.update('none');
         }
     }
-    
+
+    updateCANLoggingStatus(logging) {
+        if (!logging) return;
+
+        const canLoggingStatus = document.getElementById('can-logging-status');
+        if (!canLoggingStatus) return;
+
+        if (logging.status === 0 || logging.status === null || logging.status === undefined) {
+            canLoggingStatus.innerHTML = `<div class="text-white-400">⚪ Idle</div><div class="text-white-400">Started at: ${logging.start_time ? new Date(logging.start_time).toLocaleTimeString() : 'N/A'}</div>`;
+        } else {
+            canLoggingStatus.innerHTML = `<div class="text-green-400">🟢 Logging</div><div class="text-green-400">Started at: ${logging.start_time ? new Date(logging.start_time).toLocaleTimeString() : 'N/A'}</div>`;
+        }
+    }
 }
 
 // Initialize dashboard when DOM is loaded

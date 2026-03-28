@@ -108,19 +108,34 @@
             </div>
         </div>
 
-        <!-- VCU Status Bar -->
-        <div class="glass-card rounded-lg p-4 mb-6">
-            <h3 class="text-lg font-bold text-white mb-3 flex items-center">
-                <svg class="w-5 h-5 mr-2 text-red-500" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-                </svg>
-                VCU Status
-            </h3>
-            
-            <div id="vcu-list" class="text-sm text-slate-400 space-y-1">
-                <!-- Active VCU statuses will be listed here -->
+        <!-- VCU Status and CAN Logging Status Bar -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div class="glass-card rounded-lg p-4">
+                <h3 class="text-lg font-bold text-white mb-3 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-red-500" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                    </svg>
+                    VCU Status
+                </h3>
+                
+                <div id="vcu-list" class="flex flex-wrap gap-3 text-sm text-slate-400">
+                     <!-- Active VCU statuses will be listed here -->
+                </div>
             </div>
-        </div>
+
+            <div class="glass-card rounded-lg p-4">
+                <h3 class="text-lg font-bold text-white mb-3 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    CAN Logging Status
+                </h3>
+                
+                <div id="can-logging-status" class="flex justify-between items-center text-sm text-slate-400">
+                    <!-- CAN logging status details will be displayed here -->
+                </div>
+            </div>
+        </div>        
 
         <!-- Main Speed and Controls Section -->
         <div class="glass-card rounded-lg p-6 md:p-8 mb-6 flex flex-col items-center justify-center">
