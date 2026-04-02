@@ -1181,11 +1181,19 @@ class NTURTDashboard {
         const canLoggingStatus = document.getElementById('can-logging-status');
         if (!canLoggingStatus) return;
 
-        if (logging.status === 0 || logging.status === null || logging.status === undefined) {
-            canLoggingStatus.innerHTML = `<div class="text-white-400">⚪ Idle</div><div class="text-white-400">Started at: ${logging.start_time ? new Date(logging.start_time).toLocaleTimeString() : 'N/A'}</div>`;
-        } else {
-            canLoggingStatus.innerHTML = `<div class="text-green-400">🟢 Logging</div><div class="text-green-400">Started at: ${logging.start_time ? new Date(logging.start_time).toLocaleTimeString() : 'N/A'}</div>`;
-        }
+        const isLogging = logging.status && logging.status !== 0;
+        const colorClass = isLogging ? 'text-green-400' : 'text-white-400';
+        const icon = isLogging ? '🟢 Logging' : '⚪ Idle';
+
+        // handle timestamp (seconds)
+        const timeString = logging.start_time 
+            ? new Date(logging.start_time * 1000).toLocaleTimeString('en-US') 
+            : 'N/A';
+
+        canLoggingStatus.innerHTML = `
+            <div class="${colorClass}">${icon}</div>
+            <div class="${colorClass}">Started at: ${timeString}</div>
+        `;
     }
 }
 

@@ -463,8 +463,7 @@ class CANDecoder:
     def decode_logging_status(self, data):
         if len(data) >= 5:
             status = data[0]
-            start_time_raw = struct.unpack('<i', data[1:5])[0]
-            start_time = datetime.fromtimestamp(start_time_raw) if start_time_raw > 0 else None
+            start_time = struct.unpack('<i', data[1:5])[0]
             
             self.data_store['logging']['status'] = status
             self.data_store['logging']['start_time'] = start_time
