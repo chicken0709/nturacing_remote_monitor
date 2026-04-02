@@ -5,8 +5,12 @@ This module handles CAN bus message reading and processing.
 """
 
 import can
+import time
+import struct
 import asyncio
 from packaging import version
+
+SIMULATION_MODE = False # simulate CAN messages
 
 class CANEngine:
     def __init__ (self, client):
@@ -52,6 +56,17 @@ class CANEngine:
                             message.data,
                             bus_id=bus_id
                         )
+                elif self.client.mode == 'realtime' and SIMULATION_MODE:
+                    # simulate sending a CAN message on 0x421
+                    now_utc = int(time.time())
+                    data = struct.pack('<BI', 0x01, now_utc)
+                    print(f"Simulating CAN message on bus {bus_id}: ID=0x421, Data={data.hex()}")
+                    await self.client.enqueue_can_message(
+                        0x421,
+                        data,
+                        bus_id=bus_id
+                    )
+                    await asyncio.sleep(1)  # delay between messages
                 else:
                     await asyncio.sleep(0.01)
             except asyncio.CancelledError:
