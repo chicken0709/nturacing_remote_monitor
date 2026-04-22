@@ -152,7 +152,7 @@ function initializeCellDisplays() {
         headerDiv.className = 'segment-header';
         headerDiv.innerHTML = `
             <div class="flex justify-between items-center">
-                <span class="text-lg font-bold text-blue-300">Segment ${seg}</span>
+                <span id="segment-label-${seg}" class="text-lg font-bold text-blue-300">Segment ${seg}</span>
                 <span class="text-xl font-bold text-cyan-300">
                     Total: <span id="seg${seg}-voltage-total">--V</span>
                 </span>
@@ -527,6 +527,17 @@ function updateDisplay(data) {
                         minEl.className = 'segment-stat-value text-yellow-400';
                     } else {
                         minEl.className = 'segment-stat-value text-white';
+                    }
+                }
+
+                // if max - min > 0.06V, highlight segment header and turn label red
+                const headerEl = document.getElementById(`voltage-segment-${segIdx}`);
+                const segmentLabel = document.getElementById(`segment-label-${segIdx}`);
+                if (headerEl && segmentLabel) {
+                    if ((maxVoltage - minVoltage) > 0.06) {
+                        segmentLabel.className = 'text-lg font-bold text-red-400 bg-red-900 bg-opacity-30 px-2 py-1 rounded';
+                    } else {
+                        segmentLabel.className = 'text-lg font-bold text-blue-300';     
                     }
                 }
 
