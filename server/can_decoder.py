@@ -10,7 +10,7 @@ import logging
 import cantools
 from datetime import datetime
 
-DBC_FILE = "dbc/NTUR_EP6_260322.dbc"
+DBC_FILE = "dbc/NTUR_EP6_260406.dbc"
 
 # CAN ID : (subsystem, handler_function_name, param_type)
 # param_type: "raw" (data), "decoded" (decoded), "both" (data + decoded)
