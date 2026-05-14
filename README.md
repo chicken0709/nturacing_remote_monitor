@@ -1,4 +1,4 @@
-# NTURT CAN Monitor - Client/Server Configuration
+# NTURT CAN Monitor
 
 ## Client Configuration
 ### Modify the following parameters on the vehicle RPI:
@@ -30,22 +30,23 @@
 ### 1. Vehicle side
     
     - Steps：
-    1. Copy client_vehicle_bidir.py to the vehicle RPI
+    1. Clone the repo to the vehicle RPI
     2. Modify SERVER_URL to your server IP address
     3. Ensure CAN interface is configured (can0, can1) 
-    4. Execute: python3 client_vehicle_bidir.py
+    4. Execute: python3 client_vehicle.py
     
     - Dependencies：
     asyncio
     python-can
     websockets
+    packaging
 
 ### 2. Server side
 
     - Steps：
-    1. Copy server_remote_bidir.py to the remote RPI
+    1. Clone the repo to the remote RPI
     2. Ensure directories templates/ and static/ exist
-    3. Execute: python3 server_remote_bidir.py
+    3. Execute: python3 server_remote.py
     4. Visit in browser: http://SERVER_IP:8888
     
     - Dependencies：
@@ -65,18 +66,24 @@
     
     Use systemd service:
     
-    Vehicle side: /etc/systemd/system/can-client.service
+    Vehicle side: /etc/systemd/system/nturt-client.service
 
     # [Unit]
-    # Description=CAN Data Client
+    # Description=NTURT CAN Monitor Server - Vehicle Side
     # After=network.target
     #
     # [Service]
     # Type=simple
     # User=pi
-    # WorkingDirectory=/home/pi/GUI-dev
-    # ExecStart=/usr/bin/python3 /home/pi/GUI-dev/client_vehicle_bidir.py
+    # WorkingDirectory=/home/pi/Desktop/RPI_Desktop/nturacing_remote_monitor/client
+    # ExecStart=/usr/bin/python3 /home/pi/Desktop/RPI_Desktop/nturacing_remote_monitor/client/client_vehicle.py
     # Restart=always
+    # RestartSec=10
+    # StandardOutput=journal
+    # StandardError=journal
+    #
+    # #Environmental variables
+    # Environment="PYTHONUNBUFFERED=1"
     #
     # [Install]
     # WantedBy=multi-user.target
@@ -86,28 +93,28 @@
     # [Unit]
     # Description=NTURT CAN Monitor Server - Remote Side
     # After=network.target
-
+    #
     # [Service]
     # Type=simple
     # User=pi
-    # WorkingDirectory=/home/pi/Desktop/GUI_SC-dev
-    # ExecStart=/usr/bin/python3 /home/pi/Desktop/GUI_SC-dev/server_remote.py
+    # WorkingDirectory=/home/pi/Desktop/nturacing_remote_monitor/server
+    # ExecStart=/usr/bin/python3 /home/pi/Desktop/nturacing_remote_monitor/server/server_remote.py
     # Restart=always
     # RestartSec=10
     # StandardOutput=journal
     # StandardError=journal
-
+    #
     # # Enviromental variables
     # Environment="PYTHONUNBUFFERED=1"
-
+    #
     # [Install]
     # WantedBy=multi-user.target
     
     Enable and start service：
-    sudo systemctl enable can-client  # client side
-    sudo systemctl enable can-server  # server side
-    sudo systemctl start can-client
-    sudo systemctl start can-server
+    sudo systemctl enable nturt-client  # client side
+    sudo systemctl enable nturt-server  # server side
+    sudo systemctl start nturt-client
+    sudo systemctl start nturt-server
 
 ### 5. Connection testing
     
