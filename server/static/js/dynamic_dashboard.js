@@ -1173,6 +1173,20 @@ class NTURTDashboard {
             
             this.torqueChart.update('none');
         }
+
+        const gearIndicator = document.getElementById('gear-indicator');
+        const gearValue = vcu.gear;
+
+        if (gearValue === null || gearValue === undefined) {
+            gearIndicator.textContent = 'N/A';
+            gearIndicator.parentElement.className = "ml-4 px-2 py-1 text-xs uppercase tracking-wider rounded text-red-400 border border-red-500/30";
+        } else if (gearValue === 0) {
+            gearIndicator.textContent = 'FORWARD';
+            gearIndicator.parentElement.className = "ml-4 px-2 py-1 text-xs uppercase tracking-wider rounded text-blue-400 border border-blue-500/30";
+        } else if (gearValue === 1) {
+            gearIndicator.textContent = 'REVERSE';
+            gearIndicator.parentElement.className = "ml-4 px-2 py-1 text-xs uppercase tracking-wider rounded text-yellow-400 border border-yellow-500/30";
+        }
     }
 
     updateCANLoggingStatus(logging) {

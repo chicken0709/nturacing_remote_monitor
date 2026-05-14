@@ -149,7 +149,7 @@ class CANDecoder:
                 'steer': None, 'accel': None, 'apps1': None,    
                 'apps2': None, 'brake': None, 'bse1': None, 'bse2': None,
                 'suspFL': None, 'suspFR': None, 'suspRL': None, 'suspRR': None,
-                'status': None,
+                'status': None, 'gear': None,
                 'last_update': None},
             'imu': {
                 'accel_km6': {'x': None, 'y': None, 'z': None},
@@ -273,7 +273,10 @@ class CANDecoder:
     def decode_vcu_status(self, data):
         if len(data) < 2: return
         status = struct.unpack('<H', data[0:2])[0]
+        gear = struct.unpack('<B', data[4:5])[0]
+
         self.data_store['vcu']['status'] = [statusName for statusName, flag in STATUS_FLAGS.items() if status & flag]
+        self.data_store['vcu']['gear'] = gear
 
     def decode_vcu_suspension(self, decoded):
         self.data_store['vcu']['suspFL'] = decoded.get('SUSP_FL')
